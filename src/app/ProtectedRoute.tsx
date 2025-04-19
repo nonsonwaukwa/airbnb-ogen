@@ -1,30 +1,45 @@
-import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from './AuthProvider';
-import { Loader2 } from 'lucide-react'; // Use a loading spinner
+import React from 'react'; // Import React if needed
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from './AuthProvider'; // Adjust path if needed
+import { Loader2 } from 'lucide-react'; // Or your preferred loader
 
 export const ProtectedRoute = () => {
-  const { user, loading } = useAuth(); // Get user and loading state
+  // Destructure user, loading, and authStage from the context
+  const { user, loading, authStage } = useAuth();
+  const location = useLocation(); // Get current location
 
-  console.log('[ProtectedRoute] Rendering...', { loading, user: !!user }); // Log render state
+  console.log('[ProtectedRoute] Rendering...', { loading, authStage, user: !!user, path: location.pathname });
 
-  if (loading) {
-    // Show a loading indicator while checking auth state
-    console.log('[ProtectedRoute] Auth loading, showing loading indicator.'); // Log loading state
+  // 1. Show loading indicator while auth state is being determined
+  if (loading || authStage === 'loading') {
+    console.log('[ProtectedRoute] Auth loading, showing loading indicator.');
     return (
-      // Render loader directly, centered on screen
       <div className="flex justify-center items-center h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (!user) {
-    // If not loading and no user, redirect to login
-    console.log('[ProtectedRoute] No user found, redirecting to /login.'); // Log redirection
+  // 2. Special case: if we're on /set-password route and we have a user, allow it
+  // regardless of authStage (this handles the case where timeout switched to authenticated)
+  if (location.pathname === '/set-password' && user) {
+    console.log('[ProtectedRoute] On set-password page with valid user, allowing access.');
+    return <Outlet />;
+  }
+
+  // 3. Check if user needs to set their password (invite/recovery flow)
+  if (authStage === 'needs_password_set') {
+    console.log('[ProtectedRoute] User needs password set, redirecting to /set-password.');
+    return <Navigate to="/set-password" replace />;
+  }
+
+  // 4. Check if user is unauthenticated (no user object AND stage is unauthenticated)
+  if (!user || authStage === 'unauthenticated') {
+    console.log('[ProtectedRoute] No user or unauthenticated stage, redirecting to /login.');
     return <Navigate to="/login" replace />;
   }
 
-  // If loading is finished and user exists, render the child routes via Outlet
-  console.log('[ProtectedRoute] User found, rendering Outlet for protected content.'); // Log successful access
+  // 5. If loading is finished, user exists, and stage is authenticated, render the child routes
+  console.log('[ProtectedRoute] User authenticated, rendering Outlet.');
   return <Outlet />;
-}; 
+};

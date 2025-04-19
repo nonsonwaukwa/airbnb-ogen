@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { toast } from 'sonner';
 import { CalendarIcon, Loader2 } from 'lucide-react';
 
@@ -36,9 +36,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import { useInviteStaff, useUpdateStaff } from '@/features/staff/hooks/useStaff';
-// Assuming useGetRolesForSelect exists and works as intended
-import { useGetRolesForSelect } from '@/features/staff/hooks/useRolesForSelect';
-import type { StaffMember, InviteStaffPayload, UpdateStaffPayload, RoleOption } from '@/features/staff/types';
+// Import the hook AND the exported type
+import { useGetRolesForSelect, type RoleOption } from '@/features/staff/hooks/useRolesForSelect';
+import type { StaffMember, InviteStaffPayload, UpdateStaffPayload } from '@/features/staff/types';
 
 
 // Schema Definition
@@ -65,6 +65,7 @@ interface StaffFormProps {
 export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
   const isEditMode = !!staffMember;
   // Use the specific hook for select options
+  // roles implicitly has type RoleOption[] based on the hook's return type
   const { data: roles = [], isLoading: isLoadingRoles } = useGetRolesForSelect();
   const inviteMutation = useInviteStaff();
   const updateMutation = useUpdateStaff();
@@ -93,17 +94,38 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
     if (isOpen) {
       if (isEditMode && staffMember) {
         const formStatus = (staffMember.status === 'pending' || staffMember.status === 'active') ? 'active' : 'inactive';
+        console.log('[StaffForm Reset - Edit Mode] Resetting form with Staff ID:', staffMember.id);
+        
+        // Final attempt: Only parse if it's a string, otherwise null
+        let employmentDateValue: Date | null = null;
+        const rawDate = staffMember.employment_date;
+        
+        if (typeof rawDate === 'string') {
+            try {
+                const potentialDate = parseISO(rawDate);
+                // Only assign if the resulting date is valid
+                if (isValid(potentialDate)) {
+                    employmentDateValue = potentialDate;
+                }
+            } catch (e) { 
+              // Ignore parsing errors, employmentDateValue remains null
+              console.warn(`[StaffForm Reset] Failed to parse date string: ${rawDate}`);
+            }
+        } // If rawDate is not a string (e.g., null, undefined, or already Date), keep employmentDateValue null
+          // The form field expects a Date object or null.
+
         reset({
-          id: staffMember.user_id, // Assuming StaffMember type uses user_id
+          id: staffMember.id, // Corrected: Use staffMember.id
           email: staffMember.email,
           full_name: staffMember.full_name,
           phone: staffMember.phone ?? null,
           role_id: staffMember.role?.id || '',
-          employment_date: typeof staffMember.employment_date === 'string' ? parseISO(staffMember.employment_date) : staffMember.employment_date instanceof Date ? staffMember.employment_date : null,
+          employment_date: employmentDateValue,
           status: formStatus,
         });
       } else {
         // Reset for invite mode
+        console.log('[StaffForm Reset - Invite Mode] Resetting form.');
         reset({
             id: undefined,
             email: '',
@@ -227,7 +249,6 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
                             value={field.value}
                             disabled={isLoadingRoles || isLoading}
                         >
-                            {/* Added focus-visible override to trigger */}
                             <SelectTrigger className="col-span-3 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0">
                                 <SelectValue placeholder="Select a role" />
                             </SelectTrigger>
@@ -235,6 +256,7 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
                                 {isLoadingRoles ? (
                                     <SelectItem value="loading" disabled>Loading roles...</SelectItem>
                                 ) : (
+                                    // Now we can use the imported RoleOption type
                                     roles.map((role: RoleOption) => (
                                     <SelectItem key={role.id} value={role.id}>
                                         {role.name}

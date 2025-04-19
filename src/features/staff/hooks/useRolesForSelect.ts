@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/config/supabaseClient';
 
-interface RoleOption {
+// Export the type so it can be imported elsewhere
+export interface RoleOption {
   id: string;
   name: string;
 }
