@@ -1,4 +1,3 @@
-// src/features/roles/components/RoleListTable.tsx
 import { useState } from 'react';
 import {
   ColumnDef,
@@ -25,17 +24,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2 } from 'lucide-react'; // Removed PlusCircle
 import { useGetRoles } from '@/features/roles/hooks/useRoles';
 import { Role } from '@/features/roles/types';
 import { useAuth } from '@/app/AuthProvider';
-import { RoleForm } from './RoleForm'; // To be created
-import { DeleteRoleDialog } from './DeleteRoleDialog'; // To be created
+// Removed imports for RoleForm and DeleteRoleDialog as they are rendered in parent
 
 // --- Column Definitions ---
+// Updated to accept handler props from parent
 const getColumns = (
-    onEdit: (role: Role) => void,
-    onDelete: (role: Role) => void,
+    openEditDialog: (role: Role) => void,
+    openDeleteDialog: (role: Role) => void,
     canEdit: boolean // 'edit_roles' permission covers edit and delete
 ): ColumnDef<Role>[] => [
     {
@@ -54,29 +53,32 @@ const getColumns = (
         cell: ({ row }) => {
             const role = row.original;
             // Disable actions for SuperAdmin/Basic Staff? Maybe add check later if needed.
-            // const isProtectedRole = ['SuperAdmin', 'Basic Staff'].includes(role.name);
-            if (!canEdit /* || isProtectedRole */) return null; // Only show if user can edit roles
+            const isProtectedRole = ['SuperAdmin', 'Basic Staff'].includes(role.name);
+
+            // Only show dropdown if user can edit roles
+            if (!canEdit) return null;
 
             return (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
+                        <Button variant="ghost" className="h-8 w-8 p-0" disabled={isProtectedRole && role.name === 'SuperAdmin'}> {/* Example: Disable trigger for SuperAdmin */}
                         <span className="sr-only">Open menu</span>
                         <MoreHorizontal className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => onEdit(role)}>
-                        <Edit className="mr-2 h-4 w-4" /> Edit Role
+                        {/* Call prop function onClick */}
+                        <DropdownMenuItem onClick={() => openEditDialog(role)}>
+                            <Edit className="mr-2 h-4 w-4" /> Edit Role
                         </DropdownMenuItem>
+                         {/* Call prop function onClick, disable delete for protected roles */}
                         <DropdownMenuItem
-                            onClick={() => onDelete(role)}
+                            onClick={() => openDeleteDialog(role)}
                             className="text-red-600 focus:text-red-600"
-                            // Optionally disable delete for specific roles like SuperAdmin
-                            // disabled={role.name === 'SuperAdmin'}
+                            disabled={isProtectedRole} // Disable delete for SuperAdmin & Basic Staff
                         >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete Role
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete Role
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -87,35 +89,26 @@ const getColumns = (
 
 
 // --- Main Table Component ---
-export function RoleListTable() {
+// Updated props interface
+interface RoleListTableProps {
+    openEditDialog: (role: Role) => void;
+    openDeleteDialog: (role: Role) => void;
+}
+
+export function RoleListTable({ openEditDialog, openDeleteDialog }: RoleListTableProps) {
     const { data: roles = [], isLoading, error } = useGetRoles();
     const { permissions } = useAuth();
     const [sorting, setSorting] = useState<SortingState>([]);
 
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+    // Removed local state for dialogs - managed by parent (RolesPage)
 
     // 'edit_roles' permission grants ability to add, edit, and delete roles
     const canManageRoles = permissions['edit_roles'] === true;
 
-    const handleAddNew = () => {
-        setSelectedRole(null);
-        setIsFormOpen(true);
-    };
+    // Removed local handler functions (handleAddNew, handleEdit, handleDelete)
 
-    const handleEdit = (role: Role) => {
-        setSelectedRole(role);
-        setIsFormOpen(true);
-    };
-
-    const handleDelete = (role: Role) => {
-        setRoleToDelete(role);
-        setIsDeleteDialogOpen(true);
-    };
-
-    const columns = getColumns(handleEdit, handleDelete, canManageRoles);
+    // Pass handlers down to column definition function
+    const columns = getColumns(openEditDialog, openDeleteDialog, canManageRoles);
 
     const table = useReactTable({
         data: roles,
@@ -125,14 +118,13 @@ export function RoleListTable() {
         getPaginationRowModel: getPaginationRowModel(),
         getSortedRowModel: getSortedRowModel(),
         state: {
-        sorting,
+            sorting,
         },
         initialState: {
             pagination: { pageSize: 10 }
         }
     });
 
-    // ADD LOGGING HERE
     console.log('[RoleListTable] State:', { isLoading, error: error?.message, rolesCount: roles.length });
 
     if (isLoading) {
@@ -144,19 +136,12 @@ export function RoleListTable() {
         return <div className="text-red-600">Error loading roles: {error.message}</div>;
     }
 
-    // Log before rendering the main table content
     console.log('[RoleListTable] Rendering Table Content');
 
     return (
         <div className="w-full">
-            <div className="flex items-center justify-end py-4">
-                {/* Add New Button */}
-                {canManageRoles && (
-                <Button onClick={handleAddNew}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Role
-                </Button>
-                )}
-            </div>
+            {/* --- Add Role Button Div REMOVED From Here --- */}
+
             {/* Table */}
             <div className="rounded-md border">
                 <Table>
@@ -226,18 +211,7 @@ export function RoleListTable() {
                 </Button>
             </div>
 
-            {/* Dialogs/Sheets for Forms */}
-            <RoleForm
-                isOpen={isFormOpen}
-                setIsOpen={setIsFormOpen}
-                role={selectedRole} // Pass null for create, role data for edit
-            />
-
-             <DeleteRoleDialog
-                isOpen={isDeleteDialogOpen}
-                setIsOpen={setIsDeleteDialogOpen}
-                role={roleToDelete}
-            />
+            {/* --- Dialogs REMOVED From Here - Rendered in Parent (RolesPage) --- */}
         </div>
     );
 }

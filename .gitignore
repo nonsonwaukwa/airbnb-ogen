@@ -32,3 +32,5 @@ dist-ssr/
 *.njsproj
 *.sln
 *.sw?
+file.md
+src/app/PublicRoute.tsx
