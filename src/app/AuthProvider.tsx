@@ -15,6 +15,7 @@ import type {
   SupabaseSession,
   SupabaseUser,
   UserAuthDetails,
+  AuthStage,
 } from '@/types/auth';
 
 // Create the context with default values
@@ -24,7 +25,8 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   role: null,
   permissions: {},
-  loading: true, // Start loading initially
+  loading: true,
+  authStage: 'loading',
   signOut: async () => {
     console.error('SignOut function called before AuthProvider initialized.');
   },
@@ -40,8 +42,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [profile, setProfile] = useState<DbUserProfile | null>(null);
   const [role, setRole] = useState<DbRole | null>(null);
   const [permissions, setPermissions] = useState<PermissionsMap>({});
-  const [loading, setLoading] = useState(true); // Tracks loading of session AND profile/permissions
+  const [loading, setLoading] = useState(true);
+  const [authStage, setAuthStage] = useState<AuthStage>('loading');
+  // Flag to indicate if the initial recovery check has determined the state
+  const [initialStateDetermined, setInitialStateDetermined] = useState(false);
 
+  // --- User Details Fetching --- 
   const fetchUserDetails = useCallback(async (userId: string | undefined) => {
     if (!userId) {
         console.error("No user ID provided to fetchUserDetails");
@@ -53,126 +59,230 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
 
     setLoading(true);
-    console.log(`[AuthProvider] Fetching details for user: ${userId}`); // Log start
+    console.log(`[AuthProvider] Fetching details for user: ${userId}`);
     try {
-      // Call the Supabase function
       const { data, error } = await supabase.rpc('get_user_auth_details', {
         p_user_id: userId,
       });
 
       if (error) {
-        console.error('[AuthProvider] Error fetching user details RPC:', error); // Log RPC error
+        console.error('[AuthProvider] Error fetching user details RPC:', error);
         throw error;
       }
 
       if (data && data.error) {
-          console.error('[AuthProvider] Error returned from RPC function:', data.error); // Log function error
+          console.error('[AuthProvider] Error returned from RPC function:', data.error);
           throw new Error(data.error);
       }
 
-      const details = data as UserAuthDetails | null; // Type assertion
+      const details = data as UserAuthDetails | null;
 
-      console.log('[AuthProvider] Fetched user details:', details); // Log fetched data
+      console.log('[AuthProvider] Fetched user details:', details);
 
       if (details) {
         setProfile(details.profile);
         setRole(details.role);
-        setPermissions(details.permissions || {}); // Ensure permissions is always an object
+        setPermissions(details.permissions || {});
       } else {
-        // Handle case where RPC returns null or unexpected data
         setProfile(null);
         setRole(null);
         setPermissions({});
         console.warn('No user details returned from RPC for user:', userId);
       }
     } catch (error) {
-      console.error('[AuthProvider] Caught exception fetching user details:', error); // Log catch block
-      // Reset state on error
+      console.error('[AuthProvider] Caught exception fetching user details:', error);
       setProfile(null);
       setRole(null);
       setPermissions({});
     } finally {
-      console.log("[AuthProvider] Setting loading to false in fetchUserDetails"); // Log finally block
+      console.log("[AuthProvider] Setting loading to false in fetchUserDetails");
       setLoading(false);
     }
   }, []);
 
-  // Effect to handle auth state changes
+  // --- Initial State Determination (Mount Effect) ---
   useEffect(() => {
-    // Start loading on initial check
-    setLoading(true);
+    console.log('[AuthProvider Mount] Checking initial state...');
+    let recoveryDetected = false;
+    
+    // Check for recovery in hash or tokens in URL that indicate an invite link
+    const url = window.location.href;
+    if (window.location.hash.includes('type=recovery') || 
+        url.includes('access_token=') && url.includes('refresh_token=')) {
+      console.log('[AuthProvider Mount] Detected recovery or invite link in URL.');
+      recoveryDetected = true;
+    }
 
-    // Check initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+        console.log('[AuthProvider Mount] Initial session result:', { initialSession, recoveryDetected });
+        const currentUser = initialSession?.user ?? null;
+        setSession(initialSession); // Set session regardless
+        setUser(currentUser);      // Set user regardless
 
-      if (currentUser) {
-        fetchUserDetails(currentUser.id); // Fetch details if session exists initially
-      } else {
-        setLoading(false); // No user, stop loading
-      }
+        if (recoveryDetected && currentUser) {
+            console.log('[AuthProvider Mount] Applying Recovery flow -> needs_password_set');
+            setAuthStage('needs_password_set');
+            setLoading(false);
+        } else if (currentUser) {
+            console.log('[AuthProvider Mount] User exists, fetching details...');
+            setLoading(true);
+            fetchUserDetails(currentUser.id).then(() => {
+                setAuthStage('authenticated');
+                 setLoading(false); // Set loading false *after* details are fetched
+                console.log('[AuthProvider Mount] Details fetched -> authenticated');
+            }).catch(() => {
+                console.error('[AuthProvider Mount] Error fetching details, setting unauthenticated.');
+                setAuthStage('unauthenticated');
+                setLoading(false);
+            });
+        } else {
+            console.log('[AuthProvider Mount] No user -> unauthenticated');
+            setAuthStage('unauthenticated');
+            setLoading(false);
+        }
+        setInitialStateDetermined(true); // Mark initial check complete
+    }).catch(error => {
+         console.error('[AuthProvider Mount] Error getting initial session:', error);
+         setAuthStage('unauthenticated'); // Default to unauth on error
+         setLoading(false);
+         setInitialStateDetermined(true);
     });
 
-    // Listen for auth state changes
+  }, [fetchUserDetails]); // Depend on fetchUserDetails
+
+  // --- Auth State Change Listener ---
+  useEffect(() => {
+    // Only set up the listener *after* the initial state is determined
+    if (!initialStateDetermined) {
+        console.log('[AuthProvider Listener Effect] Waiting for initial state determination...');
+        return; 
+    }
+    console.log('[AuthProvider Listener Effect] Setting up onAuthStateChange listener.');
+
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log(`[AuthProvider] Auth event: ${event}`, session); // Log event
-        setSession(session);
-        const currentUser = session?.user ?? null;
-        // Log before setting user state
-        console.log('[AuthProvider] Setting user state to:', currentUser);
+      async (event, currentSession) => {
+        console.log(`[AuthProvider Event: ${event}] Session:`, currentSession);
+        const currentUser = currentSession?.user ?? null;
+
+        // Update session and user state immediately
+        setSession(currentSession);
         setUser(currentUser);
 
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          if (currentUser) {
-              console.log('[AuthProvider] User found after SIGNED_IN, calling fetchUserDetails...'); // Log before fetch
-              fetchUserDetails(currentUser.id); // Fetch details on sign in or token refresh
-          } else {
-              // Edge case: Event received but no user in session? Clear state.
-              console.log('[AuthProvider] SIGNED_IN event but no user, setting loading false.'); // Log edge case
-              setProfile(null);
-              setRole(null);
-              setPermissions({});
-              setLoading(false);
-          }
-        } else if (event === 'SIGNED_OUT') {
-          // Clear user-specific data on sign out
-          console.log('[AuthProvider] SIGNED_OUT event, clearing state and setting loading false.'); // Log sign out
-          setProfile(null);
-          setRole(null);
-          setPermissions({});
-          setLoading(false); // Stop loading on sign out
-        } else {
-           // For other events like INITIAL_SESSION, PASSWORD_RECOVERY etc.,
-           // we might not need to refetch details unless the user object changes significantly.
-           // If there's a user, ensure details are loaded or loading is false.
-           if (!currentUser) {
-             console.log('[AuthProvider] Other event and no user, setting loading false.'); // Log other cases
-             setLoading(false);
-           }
+        switch (event) {
+            case 'INITIAL_SESSION':
+                // This case might be redundant now due to the mount effect,
+                // but we can keep it as a fallback or for subsequent loads.
+                console.log('[AuthProvider Event] INITIAL_SESSION received (might be redundant).');
+                // Re-check based on current state if needed, but mount effect should handle first load.
+                if (authStage === 'loading') { // Only if stage wasn't set by mount
+                     if (currentUser) {
+                        setLoading(true);
+                        fetchUserDetails(currentUser.id).then(() => {
+                            setAuthStage('authenticated');
+                            setLoading(false);
+                        }).catch(() => { setAuthStage('unauthenticated'); setLoading(false); });
+                    } else {
+                        setAuthStage('unauthenticated');
+                        setLoading(false);
+                    }
+                }
+                break;
+            case 'SIGNED_IN':
+                 // If already authenticated or needing password set, ignore redundant SIGNED_IN
+                 if (authStage === 'authenticated' || authStage === 'needs_password_set') {
+                    console.log('[AuthProvider Event] SIGNED_IN ignored (already handled or in recovery).');
+                    break;
+                 } 
+                 // Otherwise, treat as a normal login
+                 if (currentUser) {
+                    console.log('[AuthProvider Event] SIGNED_IN (Normal) -> fetching details...');
+                    setLoading(true);
+                    fetchUserDetails(currentUser.id).then(() => {
+                        setAuthStage('authenticated');
+                        setLoading(false);
+                    }).catch(() => { setAuthStage('unauthenticated'); setLoading(false); });
+                 } else {
+                    console.log('[AuthProvider Event] SIGNED_IN No User -> unauthenticated');
+                    setAuthStage('unauthenticated');
+                    setLoading(false);
+                 }
+                 break;
+             case 'SIGNED_OUT':
+                 console.log('[AuthProvider Event] SIGNED_OUT -> unauthenticated');
+                 setProfile(null);
+                 setRole(null);
+                 setPermissions({});
+                 setAuthStage('unauthenticated');
+                 setLoading(false);
+                 break;
+            case 'PASSWORD_RECOVERY':
+                 console.log('[AuthProvider Event] PASSWORD_RECOVERY -> needs_password_set');
+                 // This event explicitly means the user needs to set a password
+                 setAuthStage('needs_password_set');
+                 setLoading(false);
+                 break;
+            case 'USER_UPDATED':
+                 console.log('[AuthProvider Event] USER_UPDATED');
+                 if (currentUser) {
+                    // If they were setting password, transition to authenticated after fetching details
+                     if (authStage === 'needs_password_set') {
+                         console.log('[AuthProvider Event] USER_UPDATED from needs_password_set -> fetching details...');
+                         setLoading(true);
+                         fetchUserDetails(currentUser.id).then(() => {
+                            setAuthStage('authenticated');
+                            setLoading(false);
+                         }).catch(() => { setAuthStage('unauthenticated'); setLoading(false); });
+                     } else {
+                         // For other updates, optionally re-fetch data
+                         console.log('[AuthProvider Event] USER_UPDATED (Normal) -> Re-fetching details...');
+                         setLoading(true);
+                         fetchUserDetails(currentUser.id).catch(() => setLoading(false));
+                     }
+                 } else {
+                     // Should not happen, but handle defensively
+                     console.log('[AuthProvider Event] USER_UPDATED No User -> unauthenticated');
+                     setAuthStage('unauthenticated');
+                     setLoading(false);
+                 }
+                 break;
+            case 'TOKEN_REFRESHED':
+                 console.log('[AuthProvider Event] TOKEN_REFRESHED');
+                 // Session is updated automatically, maybe re-fetch user details if needed
+                 if (currentUser && authStage === 'authenticated') {
+                     // Example: Fetch details only if profile is missing (optional)
+                     // if (!profile) { 
+                     //    setLoading(true);
+                     //    fetchUserDetails(currentUser.id).catch(() => setLoading(false)); 
+                     // } 
+                 }
+                 break;
+            default:
+                console.log('[AuthProvider Event] Unhandled event:', event);
         }
       }
     );
 
-    // Cleanup listener on component unmount
+    // Cleanup listener
     return () => {
+       console.log('[AuthProvider Listener Effect] Cleaning up listener.');
       authListener?.subscription.unsubscribe();
     };
-  }, [fetchUserDetails]); // Include fetchUserDetails in dependency array
+  // Rerun listener setup only if initialStateDetermined changes to true
+  }, [initialStateDetermined, fetchUserDetails, authStage]); // Added authStage to deps
 
   // Sign out function
   const signOut = async () => {
-    setLoading(true); // Optional: show loading state during sign out
+    setAuthStage('loading');
+    setLoading(true);
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error);
-      setLoading(false); // Reset loading on error
+       setAuthStage('unauthenticated'); 
+       setLoading(false);
     }
-    // State updates (clearing user, profile etc.) are handled by the onAuthStateChange listener
   };
 
+  // Context value
   const value = {
     session,
     user,
@@ -180,26 +290,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     role,
     permissions,
     loading,
+    authStage,
     signOut,
   };
 
-  // Log the value being provided just before returning the provider
-  console.log('[AuthProvider Rendering] Providing context value:', { 
-    loading: value.loading, 
-    user: !!value.user 
+  // Log before providing value
+  console.log('[AuthProvider Rendering] Providing context value:', {
+    loading: value.loading,
+    user: !!value.user,
+    authStage: value.authStage
   });
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// Custom hook to use the Auth Context
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
-  // Removed the log from here to avoid noise, focus on Provider and Consumer logs
-  // console.log('[useAuth Hook] Called. Returning context:', { 
-  //   loading: context?.loading, 
-  //   user: !!context?.user 
-  // }); 
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }

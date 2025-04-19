@@ -3,6 +3,9 @@ import type { User as SupabaseUser, Session as SupabaseSession } from '@supabase
 // Re-export for convenience
 export type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
 
+// Define the possible authentication stages
+export type AuthStage = 'loading' | 'needs_password_set' | 'authenticated' | 'unauthenticated';
+
 // Based on public.profiles table
 export interface DbUserProfile {
   id: string; // UUID maps to string
@@ -44,5 +47,6 @@ export interface AuthContextType {
   role: DbRole | null;
   permissions: PermissionsMap;
   loading: boolean; // Indicates if auth state and profile/permissions are being loaded
+  authStage: AuthStage; // Added authStage
   signOut: () => Promise<void>;
 } 
