@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Building2, // Properties
   CalendarDays, // Bookings
+  FileText, // Invoices (Add this icon)
   Boxes, // Inventory
   ShoppingCart, // Sales
   Truck, // Procurement
@@ -18,15 +19,15 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
   { to: '/properties', label: 'Properties', icon: Building2, permission: 'view_properties' },
   { to: '/bookings', label: 'Bookings', icon: CalendarDays, permission: 'view_bookings' },
+  { to: '/invoices', label: 'Invoices', icon: FileText, permission: 'view_invoices' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'view_inventory' },
   { to: '/sales', label: 'Sales', icon: ShoppingCart, permission: 'view_sales' },
   { to: '/procurement', label: 'Procurement', icon: Truck, permission: 'view_procurement' },
   { to: '/issues', label: 'Issues', icon: CircleAlert, permission: 'view_issues' },
   { to: '/staff', label: 'Staff', icon: Users, permission: 'view_staff' },
-  // Settings might group multiple sub-items later, link to a general settings page for now
-  // Or link directly to roles if it's the primary settings section initially
-  // Show Settings link if user can either view OR edit roles
-  { to: '/settings/roles', label: 'Settings', icon: Settings, permission: ['view_roles', 'edit_roles'] },
+  // Updated Settings link to point to the default settings page
+  // Show Settings link if user can view EITHER roles OR suppliers (expand as needed)
+  { to: '/settings/roles', label: 'Settings', icon: Settings, permission: ['view_roles', 'edit_roles', 'view_suppliers'] },
 ];
 
 export function Sidebar() {
@@ -60,10 +61,12 @@ export function Sidebar() {
               <li key={item.to}>
                 <NavLink
                   to={item.to}
-                  end // Use 'end' for the dashboard link to only match '/' exactly
+                  // Use startsWith for parent route highlighting if needed, but NavLink usually handles nested
+                  // No `end` prop needed for /settings parent link
                   className={({ isActive }) =>
                     cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-50',
+                      // isActive check should work for nested routes like /settings/roles when link is /settings/roles
                       isActive && 'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-50'
                     )
                   }

@@ -36,10 +36,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import { useInviteStaff, useUpdateStaff } from '@/features/staff/hooks/useStaff';
-// Import the hook AND the exported type
-import { useGetRolesForSelect, type RoleOption } from '@/features/staff/hooks/useRolesForSelect';
+// Assuming useGetRolesForSelect exists and works as intended
+import { useGetRolesForSelect } from '@/features/staff/hooks/useRolesForSelect';
 import type { StaffMember, InviteStaffPayload, UpdateStaffPayload } from '@/features/staff/types';
 
+// Define a simple type for role select options locally if needed, or infer from hook
+interface RoleSelectOption {
+    id: string;
+    name: string;
+}
 
 // Schema Definition
 const staffFormSchema = z.object({
@@ -64,8 +69,7 @@ interface StaffFormProps {
 
 export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
   const isEditMode = !!staffMember;
-  // Use the specific hook for select options
-  // roles implicitly has type RoleOption[] based on the hook's return type
+  // Use the specific hook for select options, assuming return type {id: string, name: string}[]
   const { data: roles = [], isLoading: isLoadingRoles } = useGetRolesForSelect();
   const inviteMutation = useInviteStaff();
   const updateMutation = useUpdateStaff();
@@ -94,38 +98,29 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
     if (isOpen) {
       if (isEditMode && staffMember) {
         const formStatus = (staffMember.status === 'pending' || staffMember.status === 'active') ? 'active' : 'inactive';
-        console.log('[StaffForm Reset - Edit Mode] Resetting form with Staff ID:', staffMember.id);
-        
-        // Final attempt: Only parse if it's a string, otherwise null
-        let employmentDateValue: Date | null = null;
-        const rawDate = staffMember.employment_date;
-        
-        if (typeof rawDate === 'string') {
+        let empDate: Date | null = null;
+        if (staffMember.employment_date) {
             try {
-                const potentialDate = parseISO(rawDate);
-                // Only assign if the resulting date is valid
-                if (isValid(potentialDate)) {
-                    employmentDateValue = potentialDate;
+                const parsedDate = parseISO(staffMember.employment_date);
+                if (isValid(parsedDate)) {
+                    empDate = parsedDate;
                 }
-            } catch (e) { 
-              // Ignore parsing errors, employmentDateValue remains null
-              console.warn(`[StaffForm Reset] Failed to parse date string: ${rawDate}`);
+            } catch (e) {
+                console.warn("Could not parse employment date:", staffMember.employment_date);
             }
-        } // If rawDate is not a string (e.g., null, undefined, or already Date), keep employmentDateValue null
-          // The form field expects a Date object or null.
+        }
 
         reset({
-          id: staffMember.id, // Corrected: Use staffMember.id
+          id: staffMember.id,
           email: staffMember.email,
           full_name: staffMember.full_name,
           phone: staffMember.phone ?? null,
           role_id: staffMember.role?.id || '',
-          employment_date: employmentDateValue,
+          employment_date: empDate,
           status: formStatus,
         });
       } else {
         // Reset for invite mode
-        console.log('[StaffForm Reset - Invite Mode] Resetting form.');
         reset({
             id: undefined,
             email: '',
@@ -249,6 +244,7 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
                             value={field.value}
                             disabled={isLoadingRoles || isLoading}
                         >
+                            {/* Added focus-visible override to trigger */}
                             <SelectTrigger className="col-span-3 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0">
                                 <SelectValue placeholder="Select a role" />
                             </SelectTrigger>
@@ -256,8 +252,7 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
                                 {isLoadingRoles ? (
                                     <SelectItem value="loading" disabled>Loading roles...</SelectItem>
                                 ) : (
-                                    // Now we can use the imported RoleOption type
-                                    roles.map((role: RoleOption) => (
+                                    roles.map((role: RoleSelectOption) => (
                                     <SelectItem key={role.id} value={role.id}>
                                         {role.name}
                                     </SelectItem>
@@ -271,82 +266,83 @@ export function StaffForm({ isOpen, setIsOpen, staffMember }: StaffFormProps) {
               </div>
 
               {/* Employment Date */}
-               <div className="grid grid-cols-4 items-center gap-x-4">
-                    {/* Removed text-right from Label */}
-                    <Label htmlFor="employment_date">Employment Date</Label>
-                    <Controller
-                        name="employment_date"
-                        control={control}
-                        render={({ field }) => (
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    {/* Added focus-visible override to button trigger */}
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "col-span-3 w-full justify-start text-left font-normal focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0",
-                                            !field.value && "text-muted-foreground"
-                                        )}
-                                         disabled={isLoading}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={field.value ?? undefined}
-                                        onSelect={field.onChange}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        )}
-                     />
-                     {errors.employment_date && <p className="col-span-full text-right text-xs text-red-600">{errors.employment_date.message}</p>}
-               </div>
+              <div className="grid grid-cols-4 items-center gap-x-4">
+                <Label htmlFor="employment_date" className="text-right">Employment Date</Label>
+                <Controller
+                    name="employment_date"
+                    control={control}
+                    render={({ field }) => (
+                        <Popover>
+                            {/* Added focus-visible override to trigger */}
+                            <PopoverTrigger asChild className="focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                            <Button
+                                variant={"outline"}
+                                className={cn(
+                                "col-span-3 justify-start text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                                )}
+                                disabled={isLoading}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                            </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                            <Calendar
+                                mode="single"
+                                selected={field.value ?? undefined} // Handle null case for selected
+                                onSelect={field.onChange}
+                                initialFocus
+                                disabled={isLoading}
+                            />
+                            </PopoverContent>
+                        </Popover>
+                    )}
+                />
+              </div>
 
-              {/* Status (Edit mode only) */}
-               {isEditMode && (
-                    <div className="grid grid-cols-4 items-center gap-x-4">
-                        <Label htmlFor="status" className="text-right">Status</Label>
-                         <Controller
-                            name="status"
-                            control={control}
-                            render={({ field }) => (
-                                <Select
-                                    onValueChange={field.onChange}
-                                    value={field.value ?? 'active'} // Default to active if somehow null
-                                    disabled={isLoading}
-                                >
-                                     {/* Added focus-visible override to trigger */}
-                                    <SelectTrigger className="col-span-3 capitalize focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0">
-                                        <SelectValue placeholder="Select status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                         <SelectItem value="active">Active</SelectItem>
-                                         <SelectItem value="inactive">Inactive</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            )}
-                         />
-                     </div>
-               )}
+              {/* Status (Only in Edit Mode) */}
+              {isEditMode && (
+                <div className="grid grid-cols-4 items-center gap-x-4">
+                  <Label htmlFor="status" className="text-right">Status</Label>
+                  <Controller
+                      name="status"
+                      control={control}
+                      render={({ field }) => (
+                          <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={isLoading}
+                          >
+                            {/* Added focus-visible override to trigger */}
+                              <SelectTrigger className="col-span-3 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                                  <SelectValue placeholder="Select status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="active">Active</SelectItem>
+                                  <SelectItem value="inactive">Inactive</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      )}
+                  />
+                  {errors.status && <p className="col-span-full text-right text-xs text-red-600">{errors.status.message}</p>}
+                </div>
+              )}
             </div>
-          </ScrollArea> {/* End ScrollArea */}
+          </ScrollArea>
 
-          {/* Footer is outside scroll area, pushed down by flex-1 on ScrollArea */}
-          <SheetFooter className="px-0 pt-4 pb-6 border-t bg-background"> {/* Use px-0 as form has padding */}
+          {/* Footer with sticky positioning */}
+          {/* Ensure padding matches content area and border-t adds separation */}
+          <SheetFooter className="px-6 py-4 border-t sticky bottom-0 bg-background z-10">
             <SheetClose asChild>
               <Button type="button" variant="outline" disabled={isLoading}>Cancel</Button>
             </SheetClose>
             <Button type="submit" disabled={isLoading}>
-               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isEditMode ? 'Save Changes' : 'Send Invite'}
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isEditMode ? 'Save Changes' : 'Invite Staff'}
             </Button>
           </SheetFooter>
-        </form> {/* End Form */}
+        </form>
       </SheetContent>
     </Sheet>
   );

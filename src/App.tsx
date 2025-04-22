@@ -1,5 +1,5 @@
 import React from 'react'; // Import React if using JSX directly
-import { Routes, Route, Outlet, Navigate, BrowserRouter } from 'react-router-dom'; // Keep BrowserRouter import for main.tsx if needed there
+import { Routes, Route, Outlet, Navigate } from 'react-router-dom'; // Removed BrowserRouter import
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/sonner'; // Assuming sonner is used for toasts
 
@@ -11,40 +11,51 @@ import { LoginPage } from '@/features/auth/routes/LoginPage';
 import { SetPasswordPage } from '@/features/auth/routes/SetPasswordPage';
 import { LogoutHandler } from '@/features/auth/components/LogoutHandler';
 import { Layout } from '@/components/Layout';
+import { SettingsLayout } from '@/components/SettingsLayout'; // Added SettingsLayout import
 import { StaffPage } from '@/features/staff/routes/StaffPage';
 import { RolesPage } from '@/features/roles/routes/RolesPage';
+import { PropertyListPage } from '@/features/properties/routes/PropertyListPage';
+import { PropertyCreatePage } from '@/features/properties/routes/PropertyCreatePage';
+import { PropertyViewPage } from '@/features/properties/routes/PropertyViewPage';
+import { SupplierListPage } from '@/features/suppliers/routes/SupplierListPage';
 import { Loader2 } from 'lucide-react';
+import { PropertiesPage } from '@/features/properties/routes/PropertiesPage';
+import { BookingRoutes } from './features/bookings/routes'; // Import BookingRoutes
+import { InvoiceListPage } from './features/invoices/pages/InvoiceListPage';
+import { InvoiceViewPage } from './features/invoices/pages/InvoiceViewPage';
+import { InvoiceFormPage } from './features/invoices/pages/InvoiceFormPage';
+import { ApplicationSettingsPage } from './features/settings/routes/ApplicationSettingsPage';
 
 // Placeholder for Dashboard page
 function DashboardPage() {
     return <div>Dashboard Content</div>;
 }
 
+// Placeholder for Profile Settings page
+function ProfileSettingsPage() {
+    return <div>Profile Settings Placeholder</div>;
+}
+
 // Create a Query Client
 const queryClient = new QueryClient();
 
 // Main App component rendering Providers and Routes
-// REMOVED BrowserRouter from here
 function App() {
   return (
-    // BrowserRouter should wrap <App /> in main.tsx
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AppRoutes /> {/* Render routes within providers */}
         <Toaster richColors /> {/* Toast setup */}
       </AuthProvider>
     </QueryClientProvider>
-    // BrowserRouter removed from here
   );
 }
 
 // Separate component for routing logic to easily access useAuth
 function AppRoutes() {
-    const { authStage, loading, user } = useAuth();
-    const isSetPasswordPath = window.location.pathname === '/set-password' || 
-                             window.location.pathname.includes('type=recovery');
+    const { authStage, loading } = useAuth();
 
-    console.log('[App] Rendering with Auth State:', { loading, authStage, isSetPasswordPath });
+    console.log('[App] Rendering with Auth State:', { loading, authStage });
 
     // 1. Show loading indicator while checking auth state
     if (loading || authStage === 'loading') {
@@ -57,9 +68,8 @@ function AppRoutes() {
     }
 
     // 2. If user needs to set password, show only that page
-    //    This overrides all other routing until password is set.
-    if (authStage === 'needs_password_set' || (user && isSetPasswordPath)) {
-        console.log('[App] Rendering SetPasswordPage', { authStage, isSetPasswordPath });
+    if (authStage === 'needs_password_set') {
+        console.log('[App] Rendering SetPasswordPage');
         return <SetPasswordPage />;
     }
 
@@ -69,26 +79,44 @@ function AppRoutes() {
             {/* Public Routes: Only accessible when logged out */}
             <Route element={<PublicRoute />}>
                 <Route path="/login" element={<LoginPage />} />
-                {/* Add other public-only routes like /forgot-password here if needed */}
             </Route>
 
             {/* Protected Routes: Only accessible when logged in (and password set) */}
             <Route element={<ProtectedRoute />}>
                 {/* Routes that use the main Layout (Sidebar/Header) */}
                 <Route element={<Layout />}>
-                    <Route path="/" element={<DashboardPage />} /> {/* Default route */}
-                    <Route path="dashboard" element={<DashboardPage />} /> {/* Explicit dashboard */}
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="dashboard" element={<DashboardPage />} />
                     <Route path="staff" element={<StaffPage />} />
-                    <Route path="settings/roles" element={<RolesPage />} />
-                    {/* Add other protected routes with layout here */}
+                    {/* Properties Section */}
+                    <Route path="properties" element={<PropertiesPage />} />
+                    <Route path="properties/new" element={<PropertyCreatePage />} />
+                    <Route path="properties/:id" element={<PropertyViewPage />} />
+                    {/* Bookings Section - Delegate all nested routes */}
+                    <Route path="bookings/*" element={<BookingRoutes />} />
+                    {/* Invoices Section */}
+                    <Route path="invoices" element={<InvoiceListPage />} />
+                    <Route path="invoices/new" element={<InvoiceFormPage />} />
+                    <Route path="invoices/edit/:invoiceId" element={<InvoiceFormPage />} />
+                    <Route path="invoices/:invoiceId" element={<InvoiceViewPage />} />
+                    {/* Settings Section - Uses SettingsLayout */}
+                    <Route path="/settings" element={<SettingsLayout />}>
+                        {/* Index route redirects to default settings page */}
+                        <Route index element={<Navigate to="/settings/roles" replace />} /> 
+                        <Route path="profile" element={<ProfileSettingsPage />} /> {/* Placeholder */}
+                        <Route path="roles" element={<RolesPage />} />
+                        <Route path="suppliers" element={<SupplierListPage />} />
+                        <Route path="application" element={<ApplicationSettingsPage />} />
+                        {/* Add other nested settings routes here */}
+                    </Route>
+                    {/* Add other top-level protected routes with main layout here */}
                 </Route>
-                {/* Special protected routes */}
+                {/* Special protected routes without main Layout */}
                 <Route path="/set-password" element={<SetPasswordPage />} /> {/* For direct URL navigation */}
                 <Route path="/logout" element={<LogoutHandler />} />
             </Route>
 
             {/* Fallback / Not Found Route */}
-            {/* Redirect to login if not authenticated, otherwise show 404 */}
             <Route path="*" element={ authStage === 'authenticated' ? <div>404 - Page Not Found</div> : <Navigate to="/login" replace /> } />
         </Routes>
     );

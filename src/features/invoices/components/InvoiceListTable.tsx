@@ -1,0 +1,429 @@
+import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+    ColumnDef,
+    flexRender,
+    getCoreRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    getSortedRowModel,
+    SortingState,
+    VisibilityState,
+    ColumnFiltersState,
+    useReactTable
+} from "@tanstack/react-table";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  MoreHorizontal,
+  Eye,
+  Edit,
+  Trash2, // Consider changing icon for Void/Cancel
+  CreditCard, // For Record Payment
+  FileText, // Placeholder for Download PDF
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { InvoiceListItem } from '../types'; // Use the list item type
+import { useAuth } from '@/app/AuthProvider';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  // Import other AlertDialog parts later when needed for actions
+} from "@/components/ui/alert-dialog";
+
+// --- Helper Functions ---
+const formatDate = (dateString: string | null | undefined) => {
+  if (!dateString) return 'N/A';
+  try {
+    return format(new Date(dateString), 'PP'); // Example: Sep 14, 2024
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Invalid Date';
+  }
+};
+
+const formatCurrency = (amount: number | null | undefined, currency: string | null | undefined) => {
+    if (amount === null || amount === undefined) return '--';
+    const ccy = currency || 'NGN'; // Default currency
+    const options: Intl.NumberFormatOptions = {
+        style: 'currency',
+        currency: ccy,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    };
+    try {
+        return amount.toLocaleString(undefined, options);
+    } catch (e) {
+        console.error("Currency formatting error", e);
+        return `${ccy} ${amount.toFixed(2)}`; // Fallback
+    }
+};
+
+// Status variant mapping (use your updated statuses)
+const getInvoiceStatusVariant = (status: InvoiceListItem['status'] | null | undefined): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status?.toLowerCase()) {
+    case 'paid':
+      return 'default'; // Greenish?
+    case 'sent':
+    case 'partial': // Partially paid
+      return 'secondary'; // Bluish/Grayish?
+    case 'draft':
+    case 'pending': // If using pending
+      return 'outline'; // Gray outline
+    case 'overdue':
+    case 'void':
+    case 'refunded':
+      return 'destructive'; // Reddish
+    default:
+      return 'outline';
+  }
+};
+
+// --- Column Definition Function ---
+export const invoiceColumns = (
+  permissions: Record<string, boolean>,
+  onView: (invoiceId: string) => void,
+  onEdit: (invoiceId: string) => void,
+  onVoid: (invoiceId: string) => void, // Placeholder for Void action
+  onRecordPayment: (invoiceId: string) => void, // Placeholder for Record Payment
+): ColumnDef<InvoiceListItem>[] => [
+  // Select column (optional)
+  {
+    id: 'select',
+    header: ({ table }) => (
+      <Checkbox
+        checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && 'indeterminate')}
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label="Select all"
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        onCheckedChange={(value) => row.toggleSelected(!!value)}
+        aria-label="Select row"
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  },
+  {
+    accessorKey: 'invoice_number',
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        Invoice #
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: ({ row }) => <div className="font-medium">{row.getValue('invoice_number') || 'N/A'}</div>,
+  },
+  {
+    accessorKey: 'customer_name',
+    header: 'Customer',
+    cell: ({ row }) => <div>{row.getValue('customer_name')}</div>,
+  },
+  {
+    accessorKey: 'issue_date',
+    header: 'Issue Date',
+    cell: ({ row }) => <div>{formatDate(row.getValue('issue_date'))}</div>,
+  },
+   {
+    accessorKey: 'due_date',
+    header: 'Due Date',
+    cell: ({ row }) => <div>{formatDate(row.getValue('due_date'))}</div>,
+  },
+  {
+    accessorKey: 'total_amount',
+    header: 'Total Amount',
+    cell: ({ row }) => <div className="text-right">{formatCurrency(row.getValue('total_amount'), row.original.currency)}</div>,
+  },
+   {
+    accessorKey: 'amount_paid',
+    header: 'Amount Paid',
+    cell: ({ row }) => <div className="text-right">{formatCurrency(row.getValue('amount_paid'), row.original.currency)}</div>,
+  },
+  {
+    accessorKey: 'status',
+    header: 'Status',
+    cell: ({ row }) => <Badge variant={getInvoiceStatusVariant(row.getValue('status'))} className="capitalize">{row.getValue('status') || 'N/A'}</Badge>,
+  },
+  // Actions Column
+  {
+    id: 'actions',
+    enableHiding: false,
+    cell: ({ row }) => {
+      const invoice = row.original;
+      const canEdit = permissions.edit_invoices && invoice.status !== 'paid' && invoice.status !== 'void' && invoice.status !== 'refunded';
+      const canVoid = permissions.edit_invoices && invoice.status !== 'void' && invoice.status !== 'paid' && invoice.status !== 'refunded';
+      const canRecordPayment = permissions.edit_invoices && invoice.status !== 'paid' && invoice.status !== 'void' && invoice.status !== 'refunded';
+
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-8 w-8 p-0">
+              <span className="sr-only">Open menu</span>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {permissions.view_invoices && (
+                <DropdownMenuItem onClick={() => onView(invoice.id)}>
+                  <Eye className="mr-2 h-4 w-4" /> View Details
+                </DropdownMenuItem>
+            )}
+             {canEdit && (
+                <DropdownMenuItem onClick={() => onEdit(invoice.id)}>
+                   <Edit className="mr-2 h-4 w-4" /> Edit Invoice
+                </DropdownMenuItem>
+            )}
+            {/* Placeholder for Download */} 
+            {permissions.view_invoices && (
+                <DropdownMenuItem onClick={() => alert('PDF Download TBD')} > 
+                  <FileText className="mr-2 h-4 w-4" /> Download PDF
+                </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+             {canRecordPayment && (
+                <DropdownMenuItem onClick={() => onRecordPayment(invoice.id)}>
+                    <CreditCard className="mr-2 h-4 w-4" /> Record Payment
+                </DropdownMenuItem>
+             )}
+            {canVoid && (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                 onClick={() => onVoid(invoice.id)} // Connect to void dialog later
+              >
+                 <Trash2 className="mr-2 h-4 w-4" /> Void Invoice 
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    },
+  },
+];
+
+// --- Props Interface ---
+interface InvoiceListTableProps {
+    invoices: InvoiceListItem[];
+    isLoading: boolean;
+    // Add handlers for actions when implemented
+    // onView: (id: string) => void;
+    // onEdit: (id: string) => void;
+    // onRecordPayment: (id: string) => void;
+    // onVoid: (id: string) => void;
+}
+
+// --- Main Table Component ---
+export function InvoiceListTable({
+    invoices,
+    isLoading,
+    // Pass action handlers here
+}: InvoiceListTableProps) {
+  const navigate = useNavigate();
+  const { permissions } = useAuth();
+
+  // Placeholder action handlers - replace later
+  const handleView = (id: string) => navigate(`/invoices/${id}`);
+  const handleEdit = (id: string) => navigate(`/invoices/${id}/edit`); // Or trigger dialog
+  const handleRecordPayment = (id: string) => alert(`Record Payment for ${id} TBD`); // Trigger dialog
+  const handleVoid = (id: string) => alert(`Void Invoice ${id} TBD`); // Trigger dialog
+
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = useState({});
+
+  const columns = useMemo(
+      () => invoiceColumns(
+          permissions,
+          handleView,
+          handleEdit,
+          handleVoid,
+          handleRecordPayment
+      ),
+      [permissions] // Add dependencies if handlers change
+  );
+
+  const tableData = useMemo(() => invoices ?? [], [invoices]);
+
+  const table = useReactTable({
+    data: tableData,
+    columns,
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+    },
+  });
+
+  // --- Skeleton Rows ---
+  const renderSkeletonRows = () => {
+    const rowCount = table.getState().pagination.pageSize || 5; // Default to 5 skeleton rows
+    const columnCount = columns.filter(col => col.id !== 'select' && col.id !== 'actions').length + 2; // Visible cols + select + actions
+
+    return Array.from({ length: rowCount }).map((_, index) => (
+      <TableRow key={`skeleton-${index}`}>
+        {columns.map((column) => (
+          <TableCell key={column.id || `skeleton-cell-${index}-${column.id}`}>
+            <Skeleton className="h-6 w-full" />
+          </TableCell>
+        ))}
+      </TableRow>
+    ));
+  };
+
+  return (
+    <div className="w-full">
+      {/* Filtering & Column Visibility */}
+      <div className="flex items-center py-4">
+        <Input
+          placeholder="Filter by customer name..."
+          value={(table.getColumn('customer_name')?.getFilterValue() as string) ?? ''}
+          onChange={(event) =>
+            table.getColumn('customer_name')?.setFilterValue(event.target.value)
+          }
+          className="max-w-sm"
+        />
+        {/* Add Status Filters Here Later if desired */} 
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="ml-auto">
+              Columns <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {table
+              .getAllColumns()
+              .filter((column) => column.getCanHide())
+              .map((column) => {
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    className="capitalize"
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) =>
+                      column.toggleVisibility(!!value)
+                    }
+                  >
+                    {column.id.replace('_', ' ')}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {/* Table */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  return (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              renderSkeletonRows()
+            ) : table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && "selected"}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center"
+                >
+                  No invoices found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      {/* Pagination */}
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <div className="flex-1 text-sm text-muted-foreground">
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
+        </div>
+        <div className="space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+} 
