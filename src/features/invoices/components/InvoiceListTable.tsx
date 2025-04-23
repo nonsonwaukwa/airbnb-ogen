@@ -54,6 +54,10 @@ import {
   AlertDialogTrigger,
   // Import other AlertDialog parts later when needed for actions
 } from "@/components/ui/alert-dialog";
+import { RecordPaymentDialog } from './RecordPaymentDialog';
+import { VoidInvoiceDialog } from './VoidInvoiceDialog';
+import { downloadInvoicePDF } from '../hooks/useInvoices';
+import { useGetSystemSettings } from '@/features/settings/hooks/useSystemSettings';
 
 // --- Helper Functions ---
 const formatDate = (dateString: string | null | undefined) => {
@@ -108,8 +112,9 @@ export const invoiceColumns = (
   permissions: Record<string, boolean>,
   onView: (invoiceId: string) => void,
   onEdit: (invoiceId: string) => void,
-  onVoid: (invoiceId: string) => void, // Placeholder for Void action
-  onRecordPayment: (invoiceId: string) => void, // Placeholder for Record Payment
+  onVoid: (invoiceId: string) => void,
+  onRecordPayment: (invoiceId: string) => void,
+  onDownloadPDF: (invoiceId: string) => void
 ): ColumnDef<InvoiceListItem>[] => [
   // Select column (optional)
   {
@@ -177,9 +182,11 @@ export const invoiceColumns = (
     enableHiding: false,
     cell: ({ row }) => {
       const invoice = row.original;
+      // Permission checks based on new logic
       const canEdit = permissions.edit_invoices && invoice.status !== 'paid' && invoice.status !== 'void' && invoice.status !== 'refunded';
       const canVoid = permissions.edit_invoices && invoice.status !== 'void' && invoice.status !== 'paid' && invoice.status !== 'refunded';
-      const canRecordPayment = permissions.edit_invoices && invoice.status !== 'paid' && invoice.status !== 'void' && invoice.status !== 'refunded';
+      // Update permission check for recording payment
+      const canRecordPayment = permissions.update_invoices && invoice.status !== 'paid' && invoice.status !== 'void' && invoice.status !== 'refunded'; 
 
       return (
         <DropdownMenu>
@@ -190,32 +197,41 @@ export const invoiceColumns = (
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+             {/* View action - requires view_invoices */} 
             {permissions.view_invoices && (
                 <DropdownMenuItem onClick={() => onView(invoice.id)}>
                   <Eye className="mr-2 h-4 w-4" /> View Details
                 </DropdownMenuItem>
             )}
+             {/* Edit action - requires edit_invoices */} 
              {canEdit && (
                 <DropdownMenuItem onClick={() => onEdit(invoice.id)}>
                    <Edit className="mr-2 h-4 w-4" /> Edit Invoice
                 </DropdownMenuItem>
             )}
-            {/* Placeholder for Download */} 
+             {/* Download action - requires view_invoices */} 
             {permissions.view_invoices && (
-                <DropdownMenuItem onClick={() => alert('PDF Download TBD')} > 
+                <DropdownMenuItem 
+                    onClick={() => onDownloadPDF(invoice.id)}
+                 > 
                   <FileText className="mr-2 h-4 w-4" /> Download PDF
                 </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
+            
+            {/* Separator only if there are actions above AND payment/void below */} 
+            {(permissions.view_invoices || canEdit) && (canRecordPayment || canVoid) && <DropdownMenuSeparator />} 
+
+             {/* Record Payment action - requires update_invoices */} 
              {canRecordPayment && (
                 <DropdownMenuItem onClick={() => onRecordPayment(invoice.id)}>
                     <CreditCard className="mr-2 h-4 w-4" /> Record Payment
                 </DropdownMenuItem>
              )}
+             {/* Void action - requires edit_invoices */} 
             {canVoid && (
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                 onClick={() => onVoid(invoice.id)} // Connect to void dialog later
+                 onClick={() => onVoid(invoice.id)}
               >
                  <Trash2 className="mr-2 h-4 w-4" /> Void Invoice 
               </DropdownMenuItem>
@@ -241,38 +257,71 @@ interface InvoiceListTableProps {
 // --- Main Table Component ---
 export function InvoiceListTable({
     invoices,
-    isLoading,
-    // Pass action handlers here
+    isLoading: isLoadingInvoices,
 }: InvoiceListTableProps) {
   const navigate = useNavigate();
   const { permissions } = useAuth();
+  const { data: systemSettings, isLoading: isLoadingSettings } = useGetSystemSettings();
 
-  // Placeholder action handlers - replace later
+  // --- State for Dialogs ---
+  const [isRecordPaymentDialogOpen, setIsRecordPaymentDialogOpen] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<InvoiceListItem | null>(null);
+  const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
+  const [selectedInvoiceForVoid, setSelectedInvoiceForVoid] = useState<InvoiceListItem | null>(null);
+
+  // Combine loading states
+  const isLoading = isLoadingInvoices || isLoadingSettings;
+
+  // --- Action Handlers ---
   const handleView = (id: string) => navigate(`/invoices/${id}`);
-  const handleEdit = (id: string) => navigate(`/invoices/${id}/edit`); // Or trigger dialog
-  const handleRecordPayment = (id: string) => alert(`Record Payment for ${id} TBD`); // Trigger dialog
-  const handleVoid = (id: string) => alert(`Void Invoice ${id} TBD`); // Trigger dialog
+  const handleEdit = (id: string) => navigate(`/invoices/edit/${id}`);
 
+  // Updated handler to open the dialog
+  const handleRecordPayment = (id: string) => {
+      const invoiceToPay = invoices.find(inv => inv.id === id);
+      if (invoiceToPay) {
+          setSelectedInvoiceForPayment(invoiceToPay);
+          setIsRecordPaymentDialogOpen(true);
+      } else {
+          console.error("Could not find invoice details for ID:", id);
+          // Optionally show a toast error
+      }
+  };
+  
+  // Updated handler for Void dialog
+  const handleVoid = (id: string) => { 
+       const invoiceToVoid = invoices.find(inv => inv.id === id);
+        if (invoiceToVoid) {
+            setSelectedInvoiceForVoid(invoiceToVoid);
+            setIsVoidDialogOpen(true);
+        } else {
+            console.error("Could not find invoice details for ID:", id);
+        }
+  }; 
+
+  // Handler for PDF Download
+  const handleDownloadPDF = async (id: string) => { 
+    // Pass systemSettings to the download function
+    await downloadInvoicePDF(id, systemSettings); 
+  }; 
+
+  // --- Table Setup ---
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState({});
 
-  const columns = useMemo(
-      () => invoiceColumns(
-          permissions,
-          handleView,
-          handleEdit,
-          handleVoid,
-          handleRecordPayment
-      ),
-      [permissions] // Add dependencies if handlers change
-  );
-
-  const tableData = useMemo(() => invoices ?? [], [invoices]);
+  const columns = useMemo(() => invoiceColumns(
+      permissions || {},
+      handleView,
+      handleEdit,
+      handleVoid,
+      handleRecordPayment,
+      handleDownloadPDF
+  ), [permissions, invoices, systemSettings]);
 
   const table = useReactTable({
-    data: tableData,
+    data: invoices,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -291,23 +340,23 @@ export function InvoiceListTable({
   });
 
   // --- Skeleton Rows ---
-  const renderSkeletonRows = () => {
-    const rowCount = table.getState().pagination.pageSize || 5; // Default to 5 skeleton rows
-    const columnCount = columns.filter(col => col.id !== 'select' && col.id !== 'actions').length + 2; // Visible cols + select + actions
-
-    return Array.from({ length: rowCount }).map((_, index) => (
+  const renderSkeletonRows = (count: number) => {
+    return Array.from({ length: count }).map((_, index) => (
       <TableRow key={`skeleton-${index}`}>
-        {columns.map((column) => (
-          <TableCell key={column.id || `skeleton-cell-${index}-${column.id}`}>
-            <Skeleton className="h-6 w-full" />
-          </TableCell>
-        ))}
+        <TableCell><Skeleton className="h-4 w-4" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+        <TableCell><Skeleton className="h-8 w-8" /></TableCell>
       </TableRow>
     ));
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-4">
       {/* Filtering & Column Visibility */}
       <div className="flex items-center py-4">
         <Input
@@ -369,7 +418,7 @@ export function InvoiceListTable({
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              renderSkeletonRows()
+              renderSkeletonRows(5)
             ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
@@ -424,6 +473,28 @@ export function InvoiceListTable({
           </Button>
         </div>
       </div>
+
+      {/* Render Dialogs */} 
+      {selectedInvoiceForPayment && (
+           <RecordPaymentDialog 
+              invoiceId={selectedInvoiceForPayment.id}
+              invoiceNumber={selectedInvoiceForPayment.invoice_number}
+              totalAmount={selectedInvoiceForPayment.total_amount}
+              currentAmountPaid={selectedInvoiceForPayment.amount_paid}
+              currency={selectedInvoiceForPayment.currency}
+              isOpen={isRecordPaymentDialogOpen}
+              onOpenChange={setIsRecordPaymentDialogOpen}
+           />
+      )}
+      {/* Render Void Dialog */}
+       {selectedInvoiceForVoid && (
+           <VoidInvoiceDialog 
+              invoiceId={selectedInvoiceForVoid.id}
+              invoiceNumber={selectedInvoiceForVoid.invoice_number}
+              isOpen={isVoidDialogOpen}
+              onOpenChange={setIsVoidDialogOpen}
+           />
+      )}
     </div>
   );
 } 

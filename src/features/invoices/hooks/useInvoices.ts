@@ -9,6 +9,11 @@ import type {
     InvoiceListItem
 } from '../types';
 import { toast } from 'sonner';
+import { pdf } from '@react-pdf/renderer';
+import { InvoicePDFDocument } from '../components/InvoicePDFDocument';
+import { useGetSystemSettings } from '@/features/settings/hooks/useSystemSettings';
+import type { SystemSettings } from '@/features/settings/types';
+import React from 'react';
 
 const INVOICE_QUERY_KEY = 'invoices';
 
@@ -27,7 +32,7 @@ const getInvoices = async (): Promise<InvoiceListItem[]> => {
             amount_paid,
             currency,
             status,
-            bookings!inner ( id, booking_number )
+            bookings ( id, booking_number )
         `)
         .order('issue_date', { ascending: false });
 
@@ -39,7 +44,7 @@ const getInvoices = async (): Promise<InvoiceListItem[]> => {
     // Manually map the data to the desired structure, handling the bookings array
     const mappedData = (data || []).map(item => ({
       ...item,
-      // Supabase returns bookings as an array, take the first element or null
+      // Supabase returns bookings as an array or null for LEFT JOIN
       booking: Array.isArray(item.bookings) ? (item.bookings[0] || null) : (item.bookings || null)
     }));
 
@@ -51,7 +56,7 @@ const getInvoice = async (id: string): Promise<Invoice | null> => {
         .from('invoices')
         .select(`
             *,
-            bookings!inner ( id, booking_number ),
+            bookings ( id, booking_number ),
             created_by:profiles ( id, full_name, email ),
             invoice_line_items (*)
         `)
@@ -260,6 +265,50 @@ const voidInvoice = async (id: string): Promise<Invoice> => {
     const finalInvoice = await getInvoice(updatedInvoice.id);
     if (!finalInvoice) throw new Error('Failed to refetch voided invoice');
     return finalInvoice;
+};
+
+// == Helper Function for Imperative PDF Download ==
+
+// Fetches necessary data and triggers PDF blob generation and download
+export const downloadInvoicePDF = async (invoiceId: string, systemSettings: SystemSettings | null | undefined) => {
+    if (!invoiceId) {
+        toast.error("Invoice ID is missing.");
+        return;
+    }
+
+    const toastId = toast.loading("Generating PDF...");
+
+    try {
+        // 1. Fetch the full invoice details
+        const invoice = await getInvoice(invoiceId);
+        if (!invoice) {
+            toast.error("Failed to fetch invoice details.", { id: toastId });
+            return;
+        }
+
+        // 2. Define the PDF document element
+        const pdfDocumentElement = React.createElement(InvoicePDFDocument, { invoice, systemSettings });
+
+        // 3. Generate the PDF blob using the element
+        const pdfBlob = await pdf(pdfDocumentElement).toBlob();
+
+        // 4. Create a URL and trigger download
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Invoice-${invoice.invoice_number || invoiceId}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+
+        // 5. Clean up
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success("PDF Download Started!", { id: toastId });
+
+    } catch (error) {
+        console.error("Error generating or downloading PDF:", error);
+        toast.error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: toastId });
+    }
 };
 
 // == React Query Hooks ==

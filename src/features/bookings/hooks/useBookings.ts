@@ -2,8 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/config/supabaseClient';
 import type { Booking, CreateBookingPayload, UpdateBookingPayload, BookingImage } from '../types';
 import { toast } from 'sonner';
-// import { useCreateInvoice } from '@/features/invoices/hooks/useInvoices';
+// Comment out unused invoice imports
+// import { useCreateInvoice } from '@/features/invoices/hooks/useInvoices'; 
 // import type { CreateInvoicePayload } from '@/features/invoices/types';
+// Comment out format if not used elsewhere
 // import { format } from 'date-fns';
 
 const BOOKING_QUERY_KEY = 'bookings';
@@ -382,136 +384,141 @@ export const useGetBooking = (id: string | null) => {
   });
 };
 
+// Hook for Creating Bookings
 export const useCreateBooking = () => {
-  const queryClient = useQueryClient();
-  // const createInvoiceMutation = useCreateInvoice();
+    const queryClient = useQueryClient();
+    // Comment out unused mutation hook variable
+    // const createInvoiceMutation = useCreateInvoice(); 
 
-  return useMutation<Booking, Error, CreateBookingPayload>({
-    mutationFn: createBooking,
-    onSuccess: (newBookingData) => {
-      toast.success('Booking created successfully.');
-      queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY] });
-      // queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY, newBookingData.id] });
+    return useMutation<Booking, Error, CreateBookingPayload>({
+        mutationFn: createBooking,
+        onSuccess: (newBookingData) => {
+            toast.success('Booking created successfully.');
+            queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY] });
+            // Invalidate single booking query too if needed, though list invalidation might cover it
+            // queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY, newBookingData.id] }); 
 
-      // --- REMOVED Automatic Invoice Creation Block --- 
-      /*
-      if (newBookingData.payment_status === 'paid') {
-        const paidAmount = newBookingData.amount || 0;
+            // --- COMMENTED OUT Client-Side Automatic Invoice Creation Block --- 
+            /*
+            if (newBookingData.payment_status === 'paid') {
+                const paidAmount = newBookingData.amount || 0;
 
-        const invoicePayload: CreateInvoicePayload = {
-          booking_id: newBookingData.id,
-          customer_name: newBookingData.guest_name || '[Guest Name Missing]',
-          customer_email: newBookingData.guest_email,
-          customer_phone: newBookingData.guest_phone,
-          tax_amount: 0,
-          discount_amount: 0,
-          customer_address_street: null,
-          customer_address_city: null,
-          customer_address_state: null,
-          customer_address_postal_code: null,
-          customer_address_country: null,
-          issue_date: new Date().toISOString().split('T')[0],
-          due_date: new Date().toISOString().split('T')[0],
-          line_items: [
-            {
-              description: `Booking for ${newBookingData.property?.name || 'Property'} (${formatDate(newBookingData.checkin_datetime)} - ${formatDate(newBookingData.checkout_datetime)})`,
-              quantity: 1,
-              unit_price: newBookingData.amount || 0,
+                const invoicePayload: CreateInvoicePayload = {
+                    booking_id: newBookingData.id,
+                    customer_name: newBookingData.guest_name || '[Guest Name Missing]', 
+                    customer_email: newBookingData.guest_email,
+                    customer_phone: newBookingData.guest_phone,
+                    tax_amount: 0,
+                    discount_amount: 0,
+                    customer_address_street: null,
+                    customer_address_city: null,
+                    customer_address_state: null,
+                    customer_address_postal_code: null,
+                    customer_address_country: null,
+                    issue_date: new Date().toISOString().split('T')[0],
+                    due_date: new Date().toISOString().split('T')[0],
+                    line_items: [
+                        {
+                            description: `Booking for ${newBookingData.property?.name || 'Property'} (${formatDate(newBookingData.checkin_datetime)} - ${formatDate(newBookingData.checkout_datetime)})`,
+                            quantity: 1,
+                            unit_price: newBookingData.amount || 0, 
+                        }
+                    ],
+                    currency: newBookingData.currency || 'NGN',
+                    notes: `Auto-generated invoice for booking #${newBookingData.booking_number}`,
+                    payment_method: newBookingData.payment_method,
+                    payment_date: new Date().toISOString().split('T')[0],
+                    status: 'paid',
+                    amount_paid: paidAmount 
+                };
+                
+                console.log('[useCreateBooking] Attempting to create invoice with payload:', JSON.stringify(invoicePayload, null, 2));
+
+                createInvoiceMutation.mutate(invoicePayload, {
+                    onSuccess: (createdInvoice) => {
+                        console.log(`[Booking ${newBookingData.id}] Successfully created automatic invoice: ID ${createdInvoice.id}, Status: ${createdInvoice.status}`);
+                        toast.info(`Invoice #${createdInvoice.invoice_number} automatically generated and marked as paid.`);
+                    },
+                    onError: (error) => {
+                         console.error(`[Booking ${newBookingData.id}] FAILED to create automatic invoice: ${error.message}`);
+                         toast.warning(`Booking created, but failed to automatically generate invoice. Please create it manually.`);
+                    }
+                });
             }
-          ],
-          currency: newBookingData.currency || 'NGN',
-          notes: `Auto-generated invoice for booking #${newBookingData.booking_number}`,
-          payment_method: newBookingData.payment_method,
-          payment_date: new Date().toISOString().split('T')[0],
-          status: 'paid',
-          amount_paid: paidAmount
-        };
-
-        console.log('[useCreateBooking] Attempting to cnmnreate invoice with payload:', JSON.stringify(invoicePayload, null, 2));
-
-        createInvoiceMutation.mutate(invoicePayload, {
-          onSuccess: (createdInvoice) => {
-            console.log(`[Booking ${newBookingData.id}] Successfully created automatic invoice: ID ${createdInvoice.id}, Status: ${createdInvoice.status}`);
-            toast.info(`Invoice #${createdInvoice.invoice_number} automatically generated and marked as paid.`);
-          },
-          onError: (error) => {
-            console.error(`[Booking ${newBookingData.id}] FAILED to create automatic invoice: ${error.message}`);
-            toast.warning(`Booking created, but failed to automatically generate invoice. Please create it manually.`);
-          }
-        });
-      }
-      */
-    },
-    onError: (error) => {
-      toast.error(`Failed to create booking: ${error.message}`);
-    },
-  });
+            */
+        },
+        onError: (error) => {
+            toast.error(`Failed to create booking: ${error.message}`);
+        },
+    });
 };
 
+// Hook for Updating Bookings
 export const useUpdateBooking = () => {
-  const queryClient = useQueryClient();
-  // const createInvoiceMutation = useCreateInvoice();
+    const queryClient = useQueryClient();
+     // Comment out unused mutation hook variable
+    // const createInvoiceMutation = useCreateInvoice();
 
-  return useMutation<Booking, Error, UpdateBookingPayload>({
-    mutationFn: updateBooking,
-    onSuccess: (updatedBookingData, variables) => {
-      toast.success('Booking updated successfully.');
-      queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY] });
-      queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY, updatedBookingData.id] });
+    return useMutation<Booking, Error, UpdateBookingPayload>({
+        mutationFn: updateBooking,
+        onSuccess: (updatedBookingData, variables) => {
+            toast.success('Booking updated successfully.');
+            queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY] });
+            queryClient.invalidateQueries({ queryKey: [BOOKING_QUERY_KEY, updatedBookingData.id] });
 
-      // --- REMOVED Automatic Invoice Creation Block --- 
-      /*
-      if (updatedBookingData.payment_status === 'paid') {
-        const paidAmount = updatedBookingData.amount || 0;
+            // --- COMMENTED OUT Client-Side Automatic Invoice Creation Block --- 
+            /*
+            if (updatedBookingData.payment_status === 'paid') {
+                 const paidAmount = updatedBookingData.amount || 0;
 
-        const invoicePayload: CreateInvoicePayload = {
-          booking_id: updatedBookingData.id,
-          customer_name: updatedBookingData.guest_name || '[Guest Name Missing]',
-          customer_email: updatedBookingData.guest_email,
-          customer_phone: updatedBookingData.guest_phone,
-          tax_amount: 0,
-          discount_amount: 0,
-          customer_address_street: null,
-          customer_address_city: null,
-          customer_address_state: null,
-          customer_address_postal_code: null,
-          customer_address_country: null,
-          issue_date: new Date().toISOString().split('T')[0],
-          due_date: new Date().toISOString().split('T')[0],
-          line_items: [
-            {
-              description: `Booking for ${updatedBookingData.property?.name || 'Property'} (${formatDate(updatedBookingData.checkin_datetime)} - ${formatDate(updatedBookingData.checkout_datetime)})`,
-              quantity: 1,
-              unit_price: updatedBookingData.amount || 0,
+                 const invoicePayload: CreateInvoicePayload = {
+                    booking_id: updatedBookingData.id,
+                    customer_name: updatedBookingData.guest_name || '[Guest Name Missing]', 
+                    customer_email: updatedBookingData.guest_email,
+                    customer_phone: updatedBookingData.guest_phone,
+                    tax_amount: 0,
+                    discount_amount: 0,
+                    customer_address_street: null,
+                    customer_address_city: null,
+                    customer_address_state: null,
+                    customer_address_postal_code: null,
+                    customer_address_country: null,
+                    issue_date: new Date().toISOString().split('T')[0],
+                    due_date: new Date().toISOString().split('T')[0],
+                    line_items: [
+                        {
+                            description: `Booking for ${updatedBookingData.property?.name || 'Property'} (${formatDate(updatedBookingData.checkin_datetime)} - ${formatDate(updatedBookingData.checkout_datetime)})`,
+                            quantity: 1,
+                            unit_price: updatedBookingData.amount || 0,
+                        }
+                    ],
+                    currency: updatedBookingData.currency || 'NGN',
+                    notes: `Auto-generated invoice for booking #${updatedBookingData.booking_number}`,
+                    payment_method: updatedBookingData.payment_method,
+                    payment_date: new Date().toISOString().split('T')[0],
+                    status: 'paid',
+                    amount_paid: paidAmount 
+                 };
+                 
+                 console.log('[useUpdateBooking] Attempting to create invoice with payload:', JSON.stringify(invoicePayload, null, 2));
+
+                 createInvoiceMutation.mutate(invoicePayload, {
+                     onSuccess: (createdInvoice) => {
+                         console.log(`[Booking ${updatedBookingData.id}] Successfully created automatic invoice on update: ID ${createdInvoice.id}, Status: ${createdInvoice.status}`);
+                         toast.info(`Invoice #${createdInvoice.invoice_number} automatically generated and marked as paid.`);
+                     },
+                     onError: (error) => {
+                         console.error(`[Booking ${updatedBookingData.id}] FAILED to create automatic invoice on update: ${error.message}`);
+                         toast.warning(`Booking updated, but failed to automatically generate invoice. Please create it manually if needed.`);
+                    }
+                 });
             }
-          ],
-          currency: updatedBookingData.currency || 'NGN',
-          notes: `Auto-generated invoice for booking #${updatedBookingData.booking_number}`,
-          payment_method: updatedBookingData.payment_method,
-          payment_date: new Date().toISOString().split('T')[0],
-          status: 'paid',
-          amount_paid: paidAmount
-        };
-
-        console.log('[useUpdateBooking] Attempting to create invoice with payload:', JSON.stringify(invoicePayload, null, 2));
-
-        createInvoiceMutation.mutate(invoicePayload, {
-          onSuccess: (createdInvoice) => {
-            console.log(`[Booking ${updatedBookingData.id}] Successfully created automatic invoice on update: ID ${createdInvoice.id}, Status: ${createdInvoice.status}`);
-            toast.info(`Invoice #${createdInvoice.invoice_number} automatically generated and marked as paid.`);
-          },
-          onError: (error) => {
-            console.error(`[Booking ${updatedBookingData.id}] FAILED to create automatic invoice on update: ${error.message}`);
-            toast.warning(`Booking updated, but failed to automatically generate invoice. Please create it manually if needed.`);
-          }
-        });
-      }
-      */
-    },
-    onError: (error) => {
-      toast.error(`Failed to update booking: ${error.message}`);
-    },
-  });
+            */
+        },
+        onError: (error) => {
+            toast.error(`Failed to update booking: ${error.message}`);
+        },
+    });
 };
 
 // Hook for cancelling a booking
@@ -548,8 +555,7 @@ export const useDeleteBooking = () => {
   }); 
 };
 
-// Remove unused formatDate helper if it's not needed elsewhere
-/*
+// Helper function definition
 const formatDate = (dateString: string | null | undefined) => {
   if (!dateString) return 'N/A';
   try {
@@ -568,5 +574,4 @@ const formatDate = (dateString: string | null | undefined) => {
     console.error('Error formatting date in booking hook:', dateString, error);
     return 'Invalid Date';
   }
-};
-*/ 
+}; 
