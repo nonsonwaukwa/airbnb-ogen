@@ -125,6 +125,34 @@ export const useGetStaffMember = (staffId: string | null | undefined) => {
 // Note: useGetStaffMember hook (fetching single profile) might be redundant
 // if all necessary data is in the list query. It can be added later if needed.
 
+/**
+ * Fetch a simplified list of active staff members for selection dropdowns.
+ */
+export const useGetStaffForSelect = () => {
+    const selectString = 'id, full_name';
+
+    const fetchStaff = async () => {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select(selectString)
+            .eq('status', 'Active') // Only fetch active staff
+            .order('full_name', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching staff for select:', error);
+            throw new Error(error.message);
+        }
+        return data || [];
+    };
+
+    const queryKey = ['staff', 'selectList'];
+
+    return useQuery({
+        queryKey: queryKey,
+        queryFn: fetchStaff,
+        staleTime: 1000 * 60 * 15, // 15 minutes stale time
+    });
+};
 
 // --- Mutation Hooks ---
 
@@ -210,10 +238,6 @@ export const useUpdateStaff = () => {
  */
 const deactivateStaff = async (payload: DeactivateStaffPayload) => {
   const { id } = payload;
-
-  if (!id) {
-    throw new Error('Staff ID is required for deactivation.');
-  }
 
   // Explicitly set status to inactive
   const { data, error } = await supabase

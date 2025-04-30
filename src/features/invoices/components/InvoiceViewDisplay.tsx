@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { InvoicePDFDocument } from './InvoicePDFDocument';
 import { useGetSystemSettings } from '@/features/settings/hooks/useSystemSettings';
 import type { SystemSettings } from '@/features/settings/types';
+import { Link } from 'react-router-dom';
 
 // --- Helper Functions ---
 const formatDate = (dateString: string | null | undefined) => {
@@ -114,7 +115,13 @@ export const InvoiceViewDisplay: React.FC<InvoiceViewDisplayProps> = ({ invoice,
                     </CardDescription>
                     {invoice.booking?.booking_number && (
                          <p className="text-sm text-muted-foreground mt-1">
-                            Related Booking: #{invoice.booking.booking_number}
+                            Related Booking: {' '}
+                            <Link 
+                                to={`/bookings/${invoice.booking_id}`}
+                                className="text-primary hover:underline"
+                            >
+                                #{invoice.booking.booking_number}
+                            </Link>
                          </p>
                      )}
                 </div>

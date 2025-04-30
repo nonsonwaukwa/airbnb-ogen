@@ -1,4 +1,3 @@
-import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/app/AuthProvider'; // Adjust path if needed
 import { Loader2 } from 'lucide-react'; // Or your preferred loader

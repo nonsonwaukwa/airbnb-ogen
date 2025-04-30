@@ -74,3 +74,9 @@ export const VoidInvoiceDialog: React.FC<VoidInvoiceDialogProps> = ({
         </Dialog>
     );
 }; 
+ 
+ 
+ 
+ 
+ 
+ 

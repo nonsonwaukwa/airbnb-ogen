@@ -68,12 +68,17 @@ const getInvoice = async (id: string): Promise<Invoice | null> => {
         console.error(`Error fetching invoice ${id}:`, error);
         throw new Error(error.message);
     }
-    // Ensure line items are sorted if needed (e.g., by description or created_at)
-    if (data?.invoice_line_items) {
-      // Add explicit types for sort parameters
-      data.invoice_line_items.sort((a: InvoiceLineItem, b: InvoiceLineItem) => a.created_at.localeCompare(b.created_at));
-    }
-    return data;
+
+    // Map bookings to booking and ensure line items are sorted
+    const mappedData = data ? {
+        ...data,
+        booking: Array.isArray(data.bookings) ? data.bookings[0] : data.bookings,
+        invoice_line_items: data.invoice_line_items?.sort((a: InvoiceLineItem, b: InvoiceLineItem) => 
+            a.created_at.localeCompare(b.created_at)
+        )
+    } : null;
+
+    return mappedData;
 };
 
 // == Mutation Functions ==
@@ -91,10 +96,14 @@ const createInvoice = async (payload: CreateInvoicePayload): Promise<Invoice> =>
     // Destructure status and amount_paid from the payload, along with others
     const { line_items, status, amount_paid, ...invoiceData } = payload;
 
-    // 1. Generate Invoice Number
+    // 1. Get current user ID
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User must be authenticated to create an invoice');
+
+    // 2. Generate Invoice Number
     const invoice_number = await generateInvoiceNumber();
 
-    // 2. Insert Invoice Record - Use status & amount_paid from payload
+    // 3. Insert Invoice Record - Use status & amount_paid from payload
     const { data: newInvoice, error: invoiceError } = await supabase
         .from('invoices')
         .insert({
@@ -102,7 +111,7 @@ const createInvoice = async (payload: CreateInvoicePayload): Promise<Invoice> =>
             invoice_number,
             status: status || 'draft', // Use provided status, default to draft
             amount_paid: amount_paid || 0, // Use provided amount_paid, default to 0
-            // created_by_user_id will be set by RLS/trigger if using auth.uid()
+            created_by_user_id: user.id
         })
         .select()
         .single();
@@ -113,7 +122,7 @@ const createInvoice = async (payload: CreateInvoicePayload): Promise<Invoice> =>
     }
     if (!newInvoice) throw new Error('Failed to create invoice, no data returned.');
 
-    // 3. Insert Line Items
+    // 4. Insert Line Items
     if (line_items && line_items.length > 0) {
         const lineItemPayloads = line_items.map(item => ({
             ...item,

@@ -1,7 +1,8 @@
-import type { User as SupabaseUser, Session as SupabaseSession } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 
 // Re-export for convenience
-export type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
+export type SupabaseSession = Session;
+export type SupabaseUser = User;
 
 // Define the possible authentication stages
 export type AuthStage = 'loading' | 'needs_password_set' | 'authenticated' | 'unauthenticated';
@@ -9,12 +10,12 @@ export type AuthStage = 'loading' | 'needs_password_set' | 'authenticated' | 'un
 // Based on public.profiles table
 export interface DbUserProfile {
   id: string; // UUID maps to string
-  role_id: string | null; // UUID maps to string
+  role_id: string; // UUID maps to string
   full_name: string;
   phone: string | null;
   email: string;
-  avatar_url: string | null;
-  status: 'pending' | 'active' | 'inactive';
+  avatar_url?: string;
+  status: 'active' | 'inactive';
   created_at: string; // TIMESTAMPTZ maps to string
   updated_at: string; // TIMESTAMPTZ maps to string
   employment_date: string | null; // DATE maps to string
@@ -24,18 +25,20 @@ export interface DbUserProfile {
 export interface DbRole {
   id: string; // UUID maps to string
   name: string;
-  description: string | null;
+  description?: string;
   created_at: string; // TIMESTAMPTZ maps to string
   updated_at: string; // TIMESTAMPTZ maps to string
 }
 
-// Map of permission IDs to boolean (e.g., { "view_staff": true })
-export type PermissionsMap = Record<string, boolean>;
+// Map of permission keys to boolean values
+export type PermissionsMap = {
+  [key: string]: boolean;
+};
 
 // Structure returned by the get_user_auth_details RPC function
 export interface UserAuthDetails {
-  profile: DbUserProfile | null;
-  role: DbRole | null;
+  profile: DbUserProfile;
+  role: DbRole;
   permissions: PermissionsMap;
 }
 
@@ -49,4 +52,17 @@ export interface AuthContextType {
   loading: boolean; // Indicates if auth state and profile/permissions are being loaded
   authStage: AuthStage; // Added authStage
   signOut: () => Promise<void>;
-} 
+  hasPermission: (permission: string) => boolean;
+}
+
+// Define available permissions
+export const PERMISSIONS = {
+  // ISSUES: { // Removing this block
+  //   VIEW: 'issues.view',
+  //   CREATE: 'issues.create',
+  //   EDIT: 'issues.edit',
+  //   DELETE: 'issues.delete',
+  //   ASSIGN: 'issues.assign',
+  // },
+  // Add other permission groups as needed (if any were defined)
+} as const; 

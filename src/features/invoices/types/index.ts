@@ -100,3 +100,10 @@ export interface RecordPaymentPayload {
     payment_date: string; // ISO date string
     payment_method: string;
 } 
+ 
+ 
+ 
+ 
+ 
+ 
+ 

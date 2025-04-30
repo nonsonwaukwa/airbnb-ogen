@@ -31,6 +31,7 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {
     console.error('SignOut function called before AuthProvider initialized.');
   },
+  hasPermission: () => false,
 });
 
 interface AuthProviderProps {
@@ -273,19 +274,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   // Only dependency is fetchUserDetails (stable) and profile (for optional refresh)
   }, [fetchUserDetails, profile]); // Removed initialStateDetermined dependency
 
-  // Sign out function
-  const signOut = useCallback(async () => {
-    console.log('[AuthProvider] Signing out...');
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('[AuthProvider] Error signing out:', error);
-    }
-     console.log('[AuthProvider] Sign out initiated.');
-     // State reset is handled by the SIGNED_OUT event listener
-  }, []);
+  // Permission checking
+  const hasPermission = useCallback((permission: string): boolean => {
+    // If loading or no permissions loaded, deny access
+    if (loading || !permissions) return false;
+    
+    // Check if the permission exists and is true
+    return !!permissions[permission];
+  }, [loading, permissions]);
 
-  // Context value using useMemo for stability
-  const value = useMemo(() => ({
+  // Memoize the context value
+  const contextValue = useMemo(() => ({
     session,
     user,
     profile,
@@ -293,12 +292,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     permissions,
     loading,
     authStage,
-    signOut,
-  }), [session, user, profile, role, permissions, loading, authStage, signOut]);
+    signOut: async () => {
+      await supabase.auth.signOut();
+    },
+    hasPermission,
+  }), [session, user, profile, role, permissions, loading, authStage, hasPermission]);
 
   // console.log('[AuthProvider Rendering] Providing context value:', { loading, authStage });
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
 
 // Custom hook to use the auth context

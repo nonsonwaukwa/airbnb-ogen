@@ -42,77 +42,47 @@ const getProperty = async (id: string): Promise<Property | null> => {
   return data as Property | null;
 };
 
+// == Image Function (Cloudinary Integration) ==
+
+/**
+ * Uploads a single image file to Cloudinary via the Supabase Edge Function,
+ * specifying the 'properties' folder.
+ * Returns the secure URL of the uploaded image.
+ */
+const uploadImageToCloudinary = async (file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('folder', 'properties'); // Specify the folder for properties
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'upload-to-cloudinary',
+      { body: formData }
+    );
+
+    if (error) {
+      console.error('Edge function invocation error:', error);
+      throw new Error(`Edge function failed: ${error.message}`);
+    }
+
+    if (!data || !data.secure_url) {
+      console.error('Invalid response from edge function:', data);
+      throw new Error('Failed to get secure URL from upload function.');
+    }
+
+    return data.secure_url;
+  } catch (err) {
+    console.error('Error uploading property image via edge function:', err);
+    throw new Error(`Image upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  }
+};
+
 // == Mutation Functions ==
 
 /**
- * Handles image uploads to Supabase Storage.
- * Returns an array of URLs or paths to the uploaded images.
- */
-const uploadPropertyImages = async (propertyId: string, files: File[]): Promise<string[]> => {
-    if (!files || files.length === 0) return [];
-
-    const uploadPromises = files.map(async (file, index) => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${index}.${fileExt}`;
-        const filePath = `public/properties/${propertyId}/${fileName}`; // Unique path per property
-
-        const { error: uploadError } = await supabase.storage
-            .from('property-images') // Corrected bucket name
-            .upload(filePath, file);
-
-        if (uploadError) {
-            console.error('Error uploading image:', uploadError);
-            throw new Error(`Failed to upload image ${file.name}: ${uploadError.message}`);
-        }
-
-        // Get public URL (adjust if using signed URLs or different access method)
-        const { data: urlData } = supabase.storage
-            .from('property-images') // Corrected bucket name
-            .getPublicUrl(filePath);
-
-        return urlData.publicUrl;
-    });
-
-    return Promise.all(uploadPromises);
-};
-
-/**
- * Deletes images from Supabase Storage.
- */
-const deletePropertyImages = async (imageUrls: string[]): Promise<void> => {
-    if (!imageUrls || imageUrls.length === 0) return;
-
-    // Extract file paths from URLs (this depends heavily on your URL structure and bucket settings)
-    // Assuming public URL like: https://<project_ref>.supabase.co/storage/v1/object/public/property-images/public/properties/<prop_id>/<filename>
-    const filePaths = imageUrls.map(url => {
-        try {
-            const urlParts = new URL(url).pathname.split('/public/property-images/'); // Corrected bucket name in path split
-            return urlParts[1];
-        } catch (e) {
-            console.error('Could not parse image URL for deletion:', url);
-            return null;
-        }
-    }).filter(path => path !== null) as string[];
-
-    if (filePaths.length === 0) return;
-
-    const { error } = await supabase.storage
-        .from('property-images') // Corrected bucket name
-        .remove(filePaths);
-
-    if (error) {
-        console.error('Error deleting images:', error);
-        // Decide if this should throw or just log
-        toast.error(`Failed to delete some images: ${error.message}`);
-    }
-};
-
-
-/**
- * Creates a new property, uploads images, and associates them.
+ * Creates a new property, uploads images to Cloudinary, and associates them.
  */
 const createProperty = async (payload: CreatePropertyPayload): Promise<Property> => {
-  // Separate image files from the rest of the payload
   const { imageFiles, ...propertyData } = payload;
 
   // 1. Insert property data
@@ -130,25 +100,24 @@ const createProperty = async (payload: CreatePropertyPayload): Promise<Property>
     throw new Error('Failed to create property, no data returned.');
   }
 
-  // 2. Upload images if any
+  // 2. Upload images to Cloudinary if any
   let uploadedImageUrls: string[] = [];
   if (imageFiles && imageFiles.length > 0) {
+    const uploadPromises = imageFiles.map(file => uploadImageToCloudinary(file));
     try {
-        uploadedImageUrls = await uploadPropertyImages(newProperty.id, imageFiles);
+        uploadedImageUrls = await Promise.all(uploadPromises);
     } catch (uploadError: any) {
-        // Attempt to clean up created property if image upload fails?
-        console.error('Image upload failed after creating property:', uploadError);
-        // Consider deleting the property record here, or notify user to fix
+        console.error('Cloudinary image upload failed after creating property:', uploadError);
         toast.error(`Property created, but image upload failed: ${uploadError.message}. Please edit the property to add images.`);
-        // Continue without images for now
+        // Decide if we should attempt to delete the created property here
     }
   }
 
-  // 3. Insert image records into property_images table
+  // 3. Insert image records into property_images table using Cloudinary URLs
   if (uploadedImageUrls.length > 0) {
     const imageRecords = uploadedImageUrls.map((url, index) => ({
       property_id: newProperty.id,
-      image_url: url,
+      image_url: url, // Store Cloudinary URL
       order: index,
     }));
 
@@ -158,81 +127,69 @@ const createProperty = async (payload: CreatePropertyPayload): Promise<Property>
 
     if (imageError) {
       console.error('Error saving image records:', imageError);
-      // Property exists, but images aren't linked in DB
       toast.error(`Property created, but failed to link images: ${imageError.message}. Please edit the property.`);
     }
   }
 
-  // Return the created property (without images attached yet, query needed to see them)
-  return newProperty as Property;
+  // Refetch the property with images
+  const finalProperty = await getProperty(newProperty.id);
+  if (!finalProperty) throw new Error('Failed to refetch created property with images.');
+  return finalProperty;
 };
 
 /**
- * Updates an existing property, handles image additions/deletions.
+ * Updates an existing property, handles Cloudinary image additions/deletions.
  */
 const updateProperty = async (payload: UpdatePropertyPayload): Promise<Property> => {
     const { id, newImageFiles, deletedImageIds, ...propertyData } = payload;
 
-    // 1. Delete images marked for deletion (from storage and DB)
+    // 1. Delete image records marked for deletion from the DB
     if (deletedImageIds && deletedImageIds.length > 0) {
-        // Fetch URLs to delete from storage
-        const { data: imagesToDelete, error: fetchErr } = await supabase
+        const { error: dbDeleteError } = await supabase
             .from('property_images')
-            .select('id, image_url')
+            .delete()
             .in('id', deletedImageIds);
 
-        if (fetchErr) {
-            console.error('Failed to fetch images for deletion:', fetchErr);
-            toast.error('Could not fetch images to delete.');
-        } else if (imagesToDelete && imagesToDelete.length > 0) {
-            // Delete from DB first
-            const { error: dbDeleteError } = await supabase
-                .from('property_images')
-                .delete()
-                .in('id', deletedImageIds);
-
-            if (dbDeleteError) {
-                console.error('Failed to delete image records from DB:', dbDeleteError);
-                toast.error('Failed to delete image records.');
-            } else {
-                // If DB deletion successful, delete from storage
-                const urlsToDelete = imagesToDelete.map(img => img.image_url);
-                await deletePropertyImages(urlsToDelete); // Logs errors internally
-            }
+        if (dbDeleteError) {
+            console.error('Failed to delete image records from DB:', dbDeleteError);
+            toast.error('Failed to delete image records.');
+            // Consider if this error should halt the update
         }
+        // NOTE: We are not deleting from Cloudinary here.
+        // Deleting orphaned files in Cloudinary might require a separate process.
     }
 
-    // 2. Upload new images
+    // 2. Upload new images to Cloudinary
     let uploadedImageUrls: string[] = [];
     if (newImageFiles && newImageFiles.length > 0) {
+        const uploadPromises = newImageFiles.map(file => uploadImageToCloudinary(file));
         try {
-            uploadedImageUrls = await uploadPropertyImages(id, newImageFiles);
+            uploadedImageUrls = await Promise.all(uploadPromises);
         } catch (uploadError: any) {
-            console.error('Failed to upload new images during update:', uploadError);
+            console.error('Failed to upload new images to Cloudinary during update:', uploadError);
             toast.error(`Failed to upload new images: ${uploadError.message}`);
             // Continue with property data update regardless
         }
     }
 
     // 3. Update property data
-    const { data: updatedProperty, error: propertyUpdateError } = await supabase
+    const { data: updatedPropertyData, error: propertyUpdateError } = await supabase
         .from('properties')
         .update(propertyData)
         .eq('id', id)
-        .select()
+        .select('id') // Only need ID, will refetch
         .single();
 
     if (propertyUpdateError) {
         console.error('Error updating property data:', propertyUpdateError);
         throw new Error(propertyUpdateError.message);
     }
-    if (!updatedProperty) {
-        throw new Error('Failed to update property, no data returned.');
+    if (!updatedPropertyData) {
+        throw new Error('Failed to update property, no data returned or ID mismatch.');
     }
 
-    // 4. Insert new image records
+    // 4. Insert new image records using Cloudinary URLs
     if (uploadedImageUrls.length > 0) {
-        // Need to determine the order for new images (find max existing order)
         const { data: existingImages, error: orderError } = await supabase
             .from('property_images')
             .select('order')
@@ -240,15 +197,17 @@ const updateProperty = async (payload: UpdatePropertyPayload): Promise<Property>
             .order('order', { ascending: false })
             .limit(1);
 
-        let nextOrder = 0;
-        if (!orderError && existingImages && existingImages.length > 0) {
-            nextOrder = existingImages[0].order + 1;
+        let startOrder = 0;
+        if (orderError) {
+            console.error('Error fetching max image order:', orderError);
+        } else if (existingImages && existingImages.length > 0) {
+            startOrder = (existingImages[0].order ?? -1) + 1;
         }
 
         const newImageRecords = uploadedImageUrls.map((url, index) => ({
             property_id: id,
-            image_url: url,
-            order: nextOrder + index,
+            image_url: url, // Store Cloudinary URL
+            order: startOrder + index,
         }));
 
         const { error: imageInsertError } = await supabase
@@ -256,52 +215,51 @@ const updateProperty = async (payload: UpdatePropertyPayload): Promise<Property>
             .insert(newImageRecords);
 
         if (imageInsertError) {
-            console.error('Error saving new image records during update:', imageInsertError);
+            console.error('Error saving new image records:', imageInsertError);
             toast.error(`Property updated, but failed to link new images: ${imageInsertError.message}.`);
         }
     }
 
-    return updatedProperty as Property;
+    // 5. Refetch the entire property data
+    const finalProperty = await getProperty(id);
+    if (!finalProperty) throw new Error('Failed to refetch updated property with images.');
+    return finalProperty;
 };
 
 /**
- * Deletes a property and its associated images from storage.
+ * Deletes a property AND its associated image records.
+ * Note: Does not delete images from Cloudinary storage.
  */
 const deleteProperty = async (id: string): Promise<void> => {
-    // 1. Get image URLs to delete from storage
-    const { data: images, error: fetchErr } = await supabase
+    // We might want transaction safety here, but for simplicity:
+    // 1. Delete associated image records
+    const { error: imageDeleteError } = await supabase
         .from('property_images')
-        .select('image_url')
+        .delete()
         .eq('property_id', id);
 
-    if (fetchErr) {
-        console.error('Could not fetch images before property deletion:', fetchErr);
-        // Proceed with property deletion anyway?
+    if (imageDeleteError) {
+        console.error(`Error deleting images for property ${id}:`, imageDeleteError);
+        toast(`Could not delete associated images, but proceeding with property deletion.`, { 
+             description: imageDeleteError.message, 
+             // You might want to customize the appearance/duration for warnings 
+        });
+        // Don't necessarily stop the property deletion
     }
 
-    // 2. Delete the property record (CASCADE should handle property_images in DB)
-    const { error: deleteError } = await supabase
+    // 2. Delete the property itself
+    const { error: propertyDeleteError } = await supabase
         .from('properties')
         .delete()
         .eq('id', id);
 
-    if (deleteError) {
-        console.error('Error deleting property:', deleteError);
-        throw new Error(deleteError.message);
+    if (propertyDeleteError) {
+        console.error(`Error deleting property ${id}:`, propertyDeleteError);
+        throw new Error(propertyDeleteError.message);
     }
 
-    // 3. Delete images from storage using the helper
-    if (images && images.length > 0) {
-        const urlsToDelete = images.map(img => img.image_url);
-        await deletePropertyImages(urlsToDelete); // Helper uses correct bucket name
-    }
-    // Also delete the storage folder itself
-    const { error: folderError } = await supabase.storage
-        .from('property-images') // Corrected bucket name
-        .remove([`public/properties/${id}`]); // Remove the folder
-     if (folderError) {
-        console.warn(`Could not delete property image folder public/properties/${id}:`, folderError);
-     }
+    // TODO: Consider deleting images from Cloudinary here or via a cleanup script
+    // Fetch URLs before deleting DB records if implementing Cloudinary delete
 };
 
 // == React Query Hooks ==
@@ -326,10 +284,11 @@ export const useCreateProperty = () => {
   const queryClient = useQueryClient();
   return useMutation<Property, Error, CreatePropertyPayload>({
     mutationFn: createProperty,
-    onSuccess: () => {
-      // Invalidate and refetch the properties list
+    onSuccess: (data) => {
+      toast.success(`Property "${data.name}" created successfully!`);
       queryClient.invalidateQueries({ queryKey: [PROPERTY_QUERY_KEY] });
-      toast.success('Property created successfully!');
+      // Pre-populate the cache for the new property detail view
+      queryClient.setQueryData([PROPERTY_QUERY_KEY, data.id], data);
     },
     onError: (error) => {
       toast.error(`Failed to create property: ${error.message}`);
@@ -342,12 +301,12 @@ export const useUpdateProperty = () => {
   return useMutation<Property, Error, UpdatePropertyPayload>({
     mutationFn: updateProperty,
     onSuccess: (data) => {
-      // Invalidate the list and the specific property query
+      toast.success(`Property "${data.name}" updated successfully!`);
+      // Invalidate both the list and the specific property detail
       queryClient.invalidateQueries({ queryKey: [PROPERTY_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: [PROPERTY_QUERY_KEY, data.id] });
-      // Optionally update the cache directly for a faster UI update
-      // queryClient.setQueryData([PROPERTY_QUERY_KEY, data.id], data);
-      toast.success('Property updated successfully!');
+      // Update the specific property cache directly
+      queryClient.setQueryData([PROPERTY_QUERY_KEY, data.id], data);
     },
     onError: (error) => {
       toast.error(`Failed to update property: ${error.message}`);
@@ -357,14 +316,14 @@ export const useUpdateProperty = () => {
 
 export const useDeleteProperty = () => {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, string>({
+  return useMutation<void, Error, string>({ // Takes propertyId (string)
     mutationFn: deleteProperty,
-    onSuccess: (_, id) => {
-      // Invalidate the list query
+    onSuccess: (_, propertyId) => {
+      toast.success("Property deleted successfully!");
+      // Invalidate the list
       queryClient.invalidateQueries({ queryKey: [PROPERTY_QUERY_KEY] });
-      // Optionally remove the specific property query from cache
-      queryClient.removeQueries({ queryKey: [PROPERTY_QUERY_KEY, id] });
-      toast.success('Property deleted successfully!');
+      // Remove the specific property detail from cache
+      queryClient.removeQueries({ queryKey: [PROPERTY_QUERY_KEY, propertyId] });
     },
     onError: (error) => {
       toast.error(`Failed to delete property: ${error.message}`);

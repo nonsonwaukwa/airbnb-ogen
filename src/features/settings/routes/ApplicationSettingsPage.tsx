@@ -45,3 +45,9 @@ export const ApplicationSettingsPage: React.FC = () => {
         </div>
     );
 }; 
+ 
+ 
+ 
+ 
+ 
+ 

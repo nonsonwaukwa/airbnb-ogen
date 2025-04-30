@@ -26,3 +26,9 @@ export interface SystemSettings {
 
 // Payload for updating settings
 export type UpdateSystemSettingsPayload = Omit<SystemSettings, 'id' | 'updated_at'>; 
+ 
+ 
+ 
+ 
+ 
+ 

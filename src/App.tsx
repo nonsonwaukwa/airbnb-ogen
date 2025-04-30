@@ -1,5 +1,4 @@
-import React from 'react'; // Import React if using JSX directly
-import { Routes, Route, Outlet, Navigate } from 'react-router-dom'; // Removed BrowserRouter import
+import { Routes, Route, Navigate } from 'react-router-dom'; // Removed BrowserRouter import
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/sonner'; // Assuming sonner is used for toasts
 
@@ -14,7 +13,6 @@ import { Layout } from '@/components/Layout';
 import { SettingsLayout } from '@/components/SettingsLayout'; // Added SettingsLayout import
 import { StaffPage } from '@/features/staff/routes/StaffPage';
 import { RolesPage } from '@/features/roles/routes/RolesPage';
-import { PropertyListPage } from '@/features/properties/routes/PropertyListPage';
 import { PropertyCreatePage } from '@/features/properties/routes/PropertyCreatePage';
 import { PropertyViewPage } from '@/features/properties/routes/PropertyViewPage';
 import { SupplierListPage } from '@/features/suppliers/routes/SupplierListPage';
@@ -25,6 +23,13 @@ import { InvoiceListPage } from './features/invoices/pages/InvoiceListPage';
 import { InvoiceViewPage } from './features/invoices/pages/InvoiceViewPage';
 import { InvoiceFormPage } from './features/invoices/pages/InvoiceFormPage';
 import { ApplicationSettingsPage } from './features/settings/routes/ApplicationSettingsPage';
+import { InventoryPage } from '@/features/inventory/routes/InventoryPage';
+import { ItemCatalogPage } from '@/features/inventory/routes/ItemCatalogPage';
+import ProcurementPage from '@/features/procurement/routes/ProcurementPage';
+import ProcurementViewPage from '@/features/procurement/routes/ProcurementViewPage';
+import { IssueListPage } from '@/features/issues/pages/IssueListPage';
+import { IssueFormPage } from '@/features/issues/pages/IssueFormPage';
+import { IssueViewPage } from '@/features/issues/pages/IssueViewPage';
 
 // Placeholder for Dashboard page
 function DashboardPage() {
@@ -88,6 +93,11 @@ function AppRoutes() {
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="dashboard" element={<DashboardPage />} />
                     <Route path="staff" element={<StaffPage />} />
+                    {/* Issues Section */}
+                    <Route path="issues" element={<IssueListPage />} />
+                    <Route path="issues/new" element={<IssueFormPage />} />
+                    <Route path="issues/:id" element={<IssueViewPage />} />
+                    <Route path="issues/:id/edit" element={<IssueFormPage />} />
                     {/* Properties Section */}
                     <Route path="properties" element={<PropertiesPage />} />
                     <Route path="properties/new" element={<PropertyCreatePage />} />
@@ -99,6 +109,12 @@ function AppRoutes() {
                     <Route path="invoices/new" element={<InvoiceFormPage />} />
                     <Route path="invoices/edit/:invoiceId" element={<InvoiceFormPage />} />
                     <Route path="invoices/:invoiceId" element={<InvoiceViewPage />} />
+                    {/* Inventory Section */}
+                    <Route path="inventory" element={<InventoryPage />} />
+                    <Route path="inventory/catalog" element={<ItemCatalogPage />} />
+                    {/* Procurement Section */}
+                    <Route path="procurement" element={<ProcurementPage />} />
+                    <Route path="procurement/:id" element={<ProcurementViewPage />} />
                     {/* Settings Section - Uses SettingsLayout */}
                     <Route path="/settings" element={<SettingsLayout />}>
                         {/* Index route redirects to default settings page */}

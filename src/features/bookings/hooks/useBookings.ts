@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 // import { useCreateInvoice } from '@/features/invoices/hooks/useInvoices'; 
 // import type { CreateInvoicePayload } from '@/features/invoices/types';
 // Comment out format if not used elsewhere
-// import { format } from 'date-fns';
+import { format } from 'date-fns';
 
 const BOOKING_QUERY_KEY = 'bookings';
 
