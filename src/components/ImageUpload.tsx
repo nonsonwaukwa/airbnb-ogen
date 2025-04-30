@@ -2,135 +2,114 @@ import { useState, useCallback, ChangeEvent } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { X, UploadCloud } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast'; // Assuming useToast hook exists
+import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils'; // Assuming cn utility exists
-import { Label } from '@/components/ui/label'; // Assuming Label component exists
 
 interface ImageUploadProps {
-  // Props for handling file changes and existing images will be needed later
-  onFilesChange?: (files: File[]) => void; // Callback when files are selected/removed
+  // Will add props later for existing images, upload function, etc.
   // Example: existingImages?: { id: string, url: string }[];
-  // Example: onUpload: (files: File[]) => Promise<void>; // Function to trigger upload
-  // Example: onDeleteExisting: (imageId: string) => Promise<void>;
+  // Example: onUpload: (file: File) => Promise<string | null>; // Returns URL or null on failure
+  // Example: onDelete: (imageId: string) => Promise<void>;
   disabled?: boolean;
 }
 
-// Make sure useToast is correctly imported and used if needed outside this component
-// If useToast is specific to shadcn/ui, ensure it's initialized correctly in your app root.
-
-export function ImageUpload({ disabled, onFilesChange }: ImageUploadProps) {
+export function ImageUpload({ disabled }: ImageUploadProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
-  // const { toast } = useToast(); // Use toast if needed for errors
+  const { toast } = useToast();
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const filesArray = Array.from(event.target.files);
+      // Simple validation (optional)
       const validFiles = filesArray.filter(file => file.type.startsWith('image/'));
-
-      // Basic validation feedback (optional)
       if (validFiles.length !== filesArray.length) {
-          console.warn("Some selected files were not valid image types.");
-          // Optionally show a toast message here if useToast is configured
-          // toast({ variant: "destructive", title: "Invalid File Type", description: "Only image files are allowed." });
+          toast({
+            variant: "destructive",
+            title: "Invalid File Type",
+            description: "Only image files are allowed.",
+          });
       }
 
-      // Update state with the new valid files
-      const newSelectedFiles = [...selectedFiles, ...validFiles];
-      setSelectedFiles(newSelectedFiles);
+      setSelectedFiles(prev => [...prev, ...validFiles]);
 
-      // Generate previews for the newly added valid files
+      // Generate previews
       const newPreviews = validFiles.map(file => URL.createObjectURL(file));
       setPreviews(prev => [...prev, ...newPreviews]);
-
-      // Call the callback prop if provided
-      if (onFilesChange) {
-          onFilesChange(newSelectedFiles);
-      }
 
       // Clear the input value to allow selecting the same file again
       event.target.value = '';
     }
-  }, [selectedFiles, onFilesChange]); // Dependency array includes selectedFiles
+  }, [toast]);
 
   const removeFile = useCallback((index: number) => {
-    // Revoke object URL before removing from state
-    URL.revokeObjectURL(previews[index]);
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => {
+      const newPreviews = prev.filter((_, i) => i !== index);
+      // Revoke object URL to free memory
+      URL.revokeObjectURL(prev[index]);
+      return newPreviews;
+    });
+  }, []);
 
-    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-    const updatedPreviews = previews.filter((_, i) => i !== index);
-
-    setSelectedFiles(updatedFiles);
-    setPreviews(updatedPreviews);
-
-     // Call the callback prop if provided
-     if (onFilesChange) {
-        onFilesChange(updatedFiles);
-     }
-
-  }, [selectedFiles, previews, onFilesChange]); // Dependency array
-
-  // Placeholder for actual upload logic triggered by parent component
-  // const handleUpload = async () => {
-  //     console.log("Uploading files:", selectedFiles);
-  //     // Logic to upload selectedFiles
-  // }
+  // TODO: Implement actual upload logic here later
+  const handleUpload = async () => {
+      toast({ title: "Upload Placeholder", description: "Actual upload logic not yet implemented." });
+      // 1. Loop through selectedFiles
+      // 2. For each file, call Supabase storage upload function
+      // 3. Get URL on success
+      // 4. Call a prop function (e.g., onUploadComplete) with the URLs
+      // 5. Handle errors
+  }
 
   return (
     <div className="space-y-4">
         <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center">
             <UploadCloud className="mx-auto h-12 w-12 text-muted-foreground" />
-            <p className="mt-2 text-sm text-muted-foreground">Drag & drop images here, or click below</p>
+            <p className="mt-2 text-sm text-muted-foreground">Drag & drop images here, or click to select</p>
              <Input
-                id="file-upload-input" // Changed ID slightly for clarity
+                id="file-upload"
                 type="file"
                 multiple
                 onChange={handleFileChange}
                 className="sr-only" // Hide the default input visually
-                accept="image/png, image/jpeg, image/gif" // Specify accepted types
+                accept="image/*" // Accept only image types
                 disabled={disabled}
             />
-            {/* Use Label component associated with the input */}
-            <Label htmlFor="file-upload-input" className={cn(
+            <label htmlFor="file-upload" className={cn(
                  "mt-4 inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary cursor-pointer",
                  disabled && "opacity-50 cursor-not-allowed"
             )}>
                 Select Images
-            </Label>
+            </label>
 
         </div>
-
-      {/* Display number of selected files (Fixes TS6133) */}
-      {selectedFiles.length > 0 && (
-        <p className="text-sm text-muted-foreground text-center">
-          {selectedFiles.length} image(s) selected.
-        </p>
-      )}
 
       {/* Previews */}
       {previews.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {previews.map((previewUrl, index) => (
-            <div key={previewUrl} className="relative group aspect-square"> {/* Use URL as key */}
+            <div key={index} className="relative group aspect-square">
               <img
                 src={previewUrl}
                 alt={`Preview ${index + 1}`}
-                className="object-cover w-full h-full rounded-md border" // Added border
-                // Remove onLoad revoke, handle in removeFile or useEffect cleanup
+                className="object-cover w-full h-full rounded-md"
+                onLoad={() => {
+                    // Optional: Could revoke URL here if worried about memory,
+                    // but might cause flicker if component re-renders.
+                    // Revoking in removeFile is safer.
+                    // URL.revokeObjectURL(previewUrl);
+                 }}
               />
               {!disabled && (
                   <Button
-                    type="button" // Ensure it's not submitting a form
                     variant="destructive"
                     size="icon"
-                    className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-10" // Ensure button is clickable
-                    onClick={(e) => {
-                        e.stopPropagation(); // Prevent potential parent clicks
-                        removeFile(index);
-                    }}
-                    aria-label="Remove image" // Better accessibility
+                    className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => removeFile(index)}
                   >
                     <X className="h-4 w-4" />
+                    <span className="sr-only">Remove image</span>
                   </Button>
               )}
             </div>
@@ -138,8 +117,13 @@ export function ImageUpload({ disabled, onFilesChange }: ImageUploadProps) {
         </div>
       )}
 
-       {/* Note: The actual upload trigger button is usually in the parent form */}
+      {/* TODO: Add button to trigger handleUpload - disabled until files selected */}
+       {/* <Button onClick={handleUpload} disabled={selectedFiles.length === 0 || disabled}>
+           Upload Selected Images (Placeholder)
+       </Button> */}
+
+        {/* TODO: Display existing images passed via props, with delete buttons */}
 
     </div>
   );
-}
+} 
