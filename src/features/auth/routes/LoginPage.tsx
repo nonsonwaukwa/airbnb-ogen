@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useNavigate, Link } from 'react-router-dom'; // Assuming usage of react-router-dom
+import { useNavigate } from 'react-router-dom'; // Assuming usage of react-router-dom
 import { supabase } from '@/config/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
