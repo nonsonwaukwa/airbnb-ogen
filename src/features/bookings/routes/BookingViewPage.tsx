@@ -1,11 +1,9 @@
-import React from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '@/app/AuthProvider';
 import { useGetBooking } from '../hooks/useBookings';
 import { BookingDetail } from '../components/BookingDetail';
 import AccessDenied from '@/components/AccessDenied'; // Assuming a generic AccessDenied component exists
 import { Skeleton } from '@/components/ui/skeleton'; // For loading state
-import { Button } from '@/components/ui/button'; // Import Button for potential future use
 
 export function BookingViewPage() {
     const { id } = useParams<{ id: string }>();

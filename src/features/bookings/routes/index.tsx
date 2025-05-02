@@ -1,7 +1,5 @@
-import React from 'react';
 import { Routes, Route, useParams } from 'react-router-dom';
 import { BookingList } from '../components/BookingList';
-import { BookingDetail } from '../components/BookingDetail'; // Needed for Edit route helper
 import { BookingForm } from '../components/BookingForm';
 import { useGetBooking } from '../hooks/useBookings'; // Needed for Edit route helper
 import { BookingViewPage } from './BookingViewPage'; // Import the page component

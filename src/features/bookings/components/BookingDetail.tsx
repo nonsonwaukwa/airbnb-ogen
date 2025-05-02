@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom';
 
 // Lightbox Imports
 import Lightbox from "yet-another-react-lightbox";
-import type { Slide } from "yet-another-react-lightbox";
 import "yet-another-react-lightbox/styles.css";
 import Download from "yet-another-react-lightbox/plugins/download";
 import Thumbnails from "yet-another-react-lightbox/plugins/thumbnails";

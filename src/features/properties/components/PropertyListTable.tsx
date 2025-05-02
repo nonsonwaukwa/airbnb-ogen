@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-    ColumnDef, 
     flexRender, 
     getCoreRowModel, 
     getPaginationRowModel,
@@ -9,7 +8,7 @@ import {
     SortingState,
     useReactTable 
 } from "@tanstack/react-table";
-import { MoreHorizontal, PlusCircle, Trash2, Loader2 } from "lucide-react";
+import { MoreHorizontal, Trash2, Loader2 } from "lucide-react";
 import { toast } from 'sonner';
 
 import { 
@@ -54,7 +53,6 @@ export function PropertyListTable() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [propertyToDelete, setPropertyToDelete] = useState<Property | null>(null);
 
-  const canAdd = permissions.add_properties === true;
   const canEdit = permissions.edit_properties === true;
   const canDelete = permissions.delete_properties === true;
 

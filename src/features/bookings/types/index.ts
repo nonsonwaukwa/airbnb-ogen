@@ -1,8 +1,15 @@
 import type { DbUserProfile } from '@/types/auth';
 import type { Property } from '@/features/properties/types'; // Import Property type for relation
 
+// Define the possible booking statuses
+export type BookingStatus = 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed' | 'no-show'; // Added 'completed','no-show'
+
+// Define the possible payment statuses
+export type PaymentStatus = 'pending' | 'paid' | 'partially_paid' | 'refunded' | 'cancelled'; // Based on usage
+
 // Based on public.bookings table from Phase 3.1.1
 export interface Booking {
+  booking_status: string;
   id: string; // UUID
   booking_number: string;
   guest_name: string;
@@ -15,8 +22,8 @@ export interface Booking {
   number_of_guests: number;
   amount: number | null; // NUMERIC
   currency: string | null;
-  payment_status: string; // e.g., 'pending', 'paid', 'partially_paid', 'refunded'
-  booking_status: string; // e.g., 'pending', 'confirmed', 'cancelled', 'completed', 'no-show'
+  payment_status: PaymentStatus;
+  status: BookingStatus; // Renamed from booking_status for consistency
   payment_method: string | null; // e.g., 'card', 'bank_transfer', 'cash'
   notes: string | null;
   created_by_user_id: string | null; // UUID
@@ -27,7 +34,7 @@ export interface Booking {
   property?: Pick<Property, 'id' | 'name'> | null;
   created_by?: Pick<DbUserProfile, 'id' | 'full_name' | 'email'> | null;
   // Add booking images
-  images?: BookingImage[];
+  images: BookingImage[]; // Make non-optional, default to [] if none
 }
 
 // Based on public.booking_images table (similar to property_images)
@@ -41,15 +48,26 @@ export interface BookingImage {
 
 // Payload for creating a booking
 // Omit auto-generated fields like id, booking_number, created_at, updated_at
-export type CreateBookingPayload = Omit<Booking, 'id' | 'booking_number' | 'created_at' | 'updated_at' | 'created_by_user_id' | 'property' | 'created_by' | 'images'> & {
+export interface CreateBookingPayload extends Omit<Booking, 'id' | 'booking_number' | 'created_at' | 'updated_at' | 'created_by_user_id' | 'property' | 'created_by' | 'images' | 'status' | 'payment_status' | 'property_id' | 'amount' | 'currency'> {
+  // Explicitly define required fields for creation, allow others to be optional from Booking base
+  guest_name: string;
+  checkin_datetime: string;
+  checkout_datetime: string;
+  number_of_guests: number;
+  property_id?: string | null; // Optional if direct booking without property initially
+  amount?: number | null;
+  currency?: string | null;
+  status?: BookingStatus; // Default might be handled by DB
+  payment_status?: PaymentStatus; // Default might be handled by DB
   imageFiles?: File[]; // For handling image uploads
-};
+}
 
 // Payload for updating a booking
 // Allow partial updates, but require ID
-export interface UpdateBookingPayload extends Partial<Omit<Booking, 'id' | 'booking_number' | 'created_at' | 'updated_at' | 'created_by_user_id' | 'property' | 'created_by' | 'images' | 'booking_status'>> {
+export interface UpdateBookingPayload extends Partial<Omit<Booking, 'id' | 'booking_number' | 'created_at' | 'updated_at' | 'created_by_user_id' | 'property' | 'created_by' | 'images'>> {
   id: string; // ID is required for update
-  booking_status?: string; // Add optional booking_status for specific updates
+  status?: BookingStatus; // Renamed from booking_status and typed
+  booking_status?: BookingStatus; // Add back for direct DB update compatibility
   // Image handling fields
   newImageFiles?: File[];
   deletedImageIds?: string[];

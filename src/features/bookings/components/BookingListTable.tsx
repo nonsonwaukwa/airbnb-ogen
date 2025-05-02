@@ -1,38 +1,39 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo } from 'react';
 import {
     ColumnDef,
     flexRender,
     getCoreRowModel,
-    getFilteredRowModel, // Keep if using filters here
+    getFilteredRowModel,
     getPaginationRowModel,
     getSortedRowModel,
     SortingState,
-    VisibilityState, // Keep if using column visibility here
-    ColumnFiltersState, // Keep if using filters here
+    VisibilityState,
     useReactTable
 } from "@tanstack/react-table";
 import {
   ArrowUpDown,
-  ChevronDown,
   MoreHorizontal,
   Eye,
   Edit,
   Trash2,
+  XCircle, // For Cancel Icon
+  Banknote, // For Mark Paid Icon
+  CheckCheck, // For Completed
+  UserX, // For No Show
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  // DropdownMenuSub, // Removing sub-menu
+  // DropdownMenuSubContent, // Removing sub-menu
+  // DropdownMenuSubTrigger, // Removing sub-menu
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -42,12 +43,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import type { Booking } from '../types';
+import type { Booking, BookingStatus } from '../types'; // Ensure BookingStatus is imported
 import { useAuth } from '@/app/AuthProvider';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
-import { useUpdateBooking } from '../hooks/useBookings';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,30 +57,34 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from 'sonner';
-import { Banknote } from 'lucide-react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+// Import necessary hooks if actions are triggered directly here
+// import { useUpdateBookingStatus, useCancelBookingRPC, useDeleteBooking, useMarkBookingPaid } from '../hooks/useBookings';
 
 // --- Helper Functions (Keep these) ---
 const formatDate = (dateString: string | null | undefined) => {
   if (!dateString) return 'N/A';
   try {
-    return format(new Date(dateString), 'PP'); // Example: Sep 14, 2024
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+        const dateParts = dateString.split('-');
+        if (dateParts.length === 3) {
+            const parsedDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+            if (!isNaN(parsedDate.getTime())) {
+                 return format(parsedDate, 'PP');
+            }
+        }
+        throw new Error('Invalid date format');
+    }
+    return format(date, 'PP');
   } catch (error) {
-    console.error('Error formatting date:', error);
+    console.error('Error formatting date:', dateString, error);
     return 'Invalid Date';
   }
 };
 
 const formatCurrency = (amount: number | null | undefined, currency: string | null | undefined) => {
     if (amount === null || amount === undefined) return '--';
-    const ccy = currency || 'NGN'; // Default currency if null
+    const ccy = currency || 'NGN';
     const options: Intl.NumberFormatOptions = {
         style: 'currency',
         currency: ccy,
@@ -90,152 +92,85 @@ const formatCurrency = (amount: number | null | undefined, currency: string | nu
         maximumFractionDigits: 2,
     };
     try {
-        return amount.toLocaleString(undefined, options);
+        const locale = ccy === 'NGN' ? 'en-NG' : undefined;
+        return amount.toLocaleString(locale, options);
     } catch (e) {
         console.error("Currency formatting error", e);
-        return `${ccy} ${amount.toFixed(2)}`; // Fallback
+        return `${ccy} ${amount.toFixed(2)}`;
     }
 };
 
-const getStatusVariant = (status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" => {
+const getPaymentStatusVariant = (status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" => {
   switch (status?.toLowerCase()) {
-    case 'paid':
-    case 'confirmed':
-      return 'default';
-    case 'partially_paid':
-    case 'pending':
-      return 'secondary';
-    case 'refunded':
-    case 'cancelled':
-      return 'destructive';
-    default:
-      return 'outline';
+    case 'paid': return 'default';
+    case 'pending': return 'secondary';
+    case 'refunded': case 'cancelled': return 'destructive';
+    default: return 'outline';
   }
 };
 
-// Helper function for Booking Status variants
 const getBookingStatusVariant = (status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" => {
   switch (status?.toLowerCase()) {
-    case 'confirmed':
-      return 'default'; // Or maybe a success color if defined
-    case 'pending':
-      return 'secondary';
-    case 'completed':
-      return 'secondary'; // Using secondary again, adjust if needed
-    case 'cancelled':
-    case 'no-show':
-      return 'destructive';
-    default:
-      return 'outline';
+    case 'confirmed': return 'default';
+    case 'pending': return 'secondary';
+    case 'completed': return 'secondary';
+    case 'cancelled': case 'no-show': return 'destructive';
+    default: return 'outline';
   }
 };
 
-// --- Constants for Status Filters ---
-const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed', 'no-show'];
-const PAYMENT_STATUSES = ['pending', 'paid', 'partially_paid', 'refunded', 'cancelled'];
-
 // --- Column Definition Function ---
+// Added onUpdateStatus prop which should call useUpdateBookingStatus hook
 export const bookingColumns = (
   permissions: Record<string, boolean>,
+  onView: (bookingId: string) => void,
   onEdit: (bookingId: string) => void,
-  onDelete: (bookingId: string) => void,
-  navigate: ReturnType<typeof useNavigate>,
-  updateBookingMutation: ReturnType<typeof useUpdateBooking>,
+  onCancelOrDelete: (booking: Booking) => void, // Combined handler prop
+  onMarkAsPaid: (booking: Booking) => void, // Handler for marking paid
+  onUpdateStatus: (id: string, newStatus: BookingStatus) => void // Handler for status change
 ): ColumnDef<Booking>[] => [
-  // Select column
-  {
-    id: 'select',
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && 'indeterminate')
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Select row"
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-  },
-  {
-    accessorKey: 'booking_number',
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-      >
-        Booking #
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: ({ row }) => <div className="lowercase">{row.getValue('booking_number') || 'N/A'}</div>,
-  },
-  {
-    accessorKey: 'guest_name',
-    header: 'Guest Name',
-    cell: ({ row }) => <div>{row.getValue('guest_name')}</div>,
-  },
-  {
-    accessorFn: (row) => row.property?.name,
-    id: 'propertyName',
-    header: 'Property',
-    cell: ({ row }) => <div>{row.original.property?.name || 'N/A'}</div>,
-  },
-  {
-    accessorKey: 'checkin_datetime',
-    header: 'Check-in',
-    cell: ({ row }) => <div>{formatDate(row.getValue('checkin_datetime'))}</div>,
-  },
-  {
-    accessorKey: 'checkout_datetime',
-    header: 'Check-out',
-    cell: ({ row }) => <div>{formatDate(row.getValue('checkout_datetime'))}</div>,
-  },
-   {
-    accessorKey: 'amount',
-    header: 'Amount',
-    cell: ({ row }) => <div>{formatCurrency(row.getValue('amount'), row.original.currency)}</div>,
-  },
-  {
-    accessorKey: 'payment_status',
-    header: 'Payment Status',
-    cell: ({ row }) => <Badge variant={getStatusVariant(row.getValue('payment_status'))} className="capitalize">{row.getValue('payment_status') || 'N/A'}</Badge>,
-  },
-  {
-    accessorKey: 'booking_status',
-    header: 'Booking Status',
-    cell: ({ row }) => <Badge variant={getBookingStatusVariant(row.getValue('booking_status'))} className="capitalize">{row.getValue('booking_status') || 'N/A'}</Badge>,
-  },
+  // Select column (optional)
+   { id: 'select', header: ({ table }) => (<Checkbox checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && 'indeterminate')} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all"/>), cell: ({ row }) => (<Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="Select row"/>), enableSorting: false, enableHiding: false },
+  { accessorKey: 'booking_number', header: ({ column }) => (<Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>Booking #<ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => <div className="lowercase font-medium">{row.getValue('booking_number') || 'N/A'}</div> },
+  { accessorKey: 'guest_name', header: 'Guest Name', cell: ({ row }) => <div>{row.getValue('guest_name')}</div> },
+  { accessorFn: (row) => row.property?.name, id: 'propertyName', header: 'Property', cell: ({ row }) => <div>{row.original.property?.name || 'N/A'}</div> },
+  { accessorKey: 'checkin_datetime', header: 'Check-in', cell: ({ row }) => <div>{formatDate(row.getValue('checkin_datetime'))}</div> },
+  { accessorKey: 'checkout_datetime', header: 'Check-out', cell: ({ row }) => <div>{formatDate(row.getValue('checkout_datetime'))}</div> },
+  { accessorKey: 'amount', header: () => <div className="text-right">Amount</div>, cell: ({ row }) => <div className="text-right">{formatCurrency(row.getValue('amount'), row.original.currency)}</div> },
+  { accessorKey: 'payment_status', header: 'Payment Status', cell: ({ row }) => <Badge variant={getPaymentStatusVariant(row.getValue('payment_status'))} className="capitalize">{row.getValue('payment_status') || 'N/A'}</Badge> },
+  { accessorKey: 'booking_status', header: 'Booking Status', cell: ({ row }) => <Badge variant={getBookingStatusVariant(row.getValue('booking_status'))} className="capitalize">{row.getValue('booking_status') || 'N/A'}</Badge> },
   // Actions Column
   {
     id: 'actions',
     enableHiding: false,
     cell: ({ row }) => {
       const booking = row.original;
+      // Get specific permissions from the passed object
+      const canView = permissions?.view_bookings ?? false;
+      const canEdit = permissions?.edit_bookings ?? false;
+      const canAdd = permissions?.add_bookings ?? false;
+      const canDelete = permissions?.delete_bookings ?? false;
+      const canMarkPaid = (canEdit || canAdd); // Use combined permission
+      const canCancel = (canEdit || canAdd);
+      const canUpdateStatus = (canEdit || canAdd); // General permission to update status
 
-      // Handler for marking as paid
-      const handleMarkAsPaid = () => {
-        updateBookingMutation.mutate(
-          { id: booking.id, payment_status: 'paid' },
-          {
-            onSuccess: () => {
-              toast.success(`Booking #${booking.booking_number} marked as paid.`);
-              // Invalidation happens within the hook, no need to call here
-            },
-            onError: (error) => {
-              toast.error(`Failed to mark as paid: ${error.message}`);
-            },
-          }
-        );
-      };
+      // Determine state flags
+      const isPending = booking.booking_status === 'pending' && booking.payment_status === 'pending';
+      const isPaymentPending = booking.payment_status === 'pending';
+      const isConfirmed = booking.booking_status === 'confirmed';
+      const isCancellable = !['cancelled', 'completed', 'no-show'].includes(booking.booking_status ?? '');
+
+      // Determine permission flags for actions
+      const showEdit = (canEdit || canAdd) && isPending;
+      const showDelete = canDelete && isPending;
+      // Show Cancel if user has permission AND it's not pending/pending AND it's cancellable
+      const showCancel = canCancel && !isPending && isCancellable;
+      // Show Mark Paid if user has permission AND payment is pending AND booking is cancellable (not final)
+      const showMarkPaid = canMarkPaid && isPaymentPending && isCancellable;
+      // Show Completed/NoShow if user has permission AND booking is confirmed
+      const showMarkCompleted = canUpdateStatus && isConfirmed;
+      const showMarkNoShow = canUpdateStatus && isConfirmed;
+
 
       return (
         <DropdownMenu>
@@ -246,53 +181,82 @@ export const bookingColumns = (
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {permissions.view_bookings && (
-                <DropdownMenuItem onClick={() => navigate(`/bookings/${booking.id}`)}>
+            {/* View Details */}
+            {canView && (
+                <DropdownMenuItem onClick={() => onView(booking.id)}>
                   <Eye className="mr-2 h-4 w-4" /> View Details
                 </DropdownMenuItem>
             )}
-             {permissions.edit_bookings && (
-                <DropdownMenuItem onClick={() => onEdit(booking.id)} disabled={booking.booking_status === 'cancelled' || booking.booking_status === 'no-show' || booking.booking_status === 'completed'}>
+             {/* Edit Booking (Only if Pending/Pending) */}
+             {showEdit && (
+                 <DropdownMenuItem onClick={() => onEdit(booking.id)}>
                    <Edit className="mr-2 h-4 w-4" /> Edit Booking
-                </DropdownMenuItem>
-            )}
+                 </DropdownMenuItem>
+             )}
 
-            {/* Mark as Paid Action */}
-            {permissions.edit_bookings && booking.payment_status === 'pending' && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={updateBookingMutation.isPending}>
-                          <Banknote className="mr-2 h-4 w-4" /> Mark as Paid
-                      </DropdownMenuItem>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                      <AlertDialogHeader>
-                      <AlertDialogTitle>Confirm Payment</AlertDialogTitle>
-                      <AlertDialogDescription>
-                          Are you sure you want to mark booking #{booking.booking_number} as 'Paid'?
-                          This action may automatically confirm the booking.
-                      </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleMarkAsPaid}>Confirm Paid</AlertDialogAction>
-                      </AlertDialogFooter>
-                  </AlertDialogContent>
-                 </AlertDialog>
-            )}
+            {/* Mark as Paid (Only if Payment Pending and Cancellable) */}
+            {showMarkPaid && (
+                 <DropdownMenuItem onClick={() => onMarkAsPaid(booking)}>
+                     <Banknote className="mr-2 h-4 w-4" /> Mark as Paid
+                 </DropdownMenuItem>
+             )}
 
-            {/* Separator only needed if delete/cancel is possible */}
-            {(permissions.delete_bookings && !['cancelled', 'no-show', 'completed'].includes(booking.booking_status)) && (
-                <DropdownMenuSeparator />
-            )}
-
-            {permissions.delete_bookings && !['cancelled', 'no-show', 'completed'].includes(booking.booking_status) && (
+            {/* Cancel Booking (Only if NOT Pending/Pending and Cancellable) */}
+            {showCancel && (
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                 onClick={() => onDelete(booking.id)}
+                onClick={() => onCancelOrDelete(booking)} // Uses combined handler which calls RPC
+                className={'text-orange-600 focus:text-orange-700 focus:bg-orange-50'}
               >
-                 <Trash2 className="mr-2 h-4 w-4" /> Cancel Booking
+                <XCircle className="mr-2 h-4 w-4" /> Cancel Booking
               </DropdownMenuItem>
+            )}
+
+            {/* Mark Completed (Only if Confirmed) */}
+            {showMarkCompleted && (
+                 <DropdownMenuItem onClick={() => onUpdateStatus(booking.id, 'completed')}>
+                     <CheckCheck className="mr-2 h-4 w-4" /> Mark Completed
+                 </DropdownMenuItem>
+            )}
+             {/* Mark No-Show (Only if Confirmed) */}
+             {showMarkNoShow && (
+                 <DropdownMenuItem onClick={() => onUpdateStatus(booking.id, 'no-show')}>
+                     <UserX className="mr-2 h-4 w-4" /> Mark No-Show
+                 </DropdownMenuItem>
+            )}
+
+            {/* Separator if needed before Delete */}
+            {(showEdit || showMarkPaid || showCancel || showMarkCompleted || showMarkNoShow) && showDelete && <DropdownMenuSeparator />}
+
+            {/* Delete Booking (Only if Pending/Pending) */}
+            {showDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <DropdownMenuItem
+                    onSelect={(e) => e.preventDefault()} // prevent closing dropdown
+                    className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                    // disabled={!isPending} // Redundant check, already handled by showDelete
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete Booking
+                  </DropdownMenuItem>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete this pending booking record.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                       className="bg-red-600 hover:bg-red-700"
+                       onClick={() => onCancelOrDelete(booking)} // Use the combined handler
+                    >
+                      Yes, delete booking
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -304,37 +268,54 @@ export const bookingColumns = (
 // --- Props Interface for the Table Component ---
 interface BookingListTableProps {
     bookings: Booking[];
-    isLoading: boolean; // <--- ADD THIS LINE
+    isLoading: boolean;
     onView: (id: string) => void;
     onEdit: (id: string) => void;
-    onDelete: (id: string) => void;
+    onCancelOrDelete: (booking: Booking) => void; // Combined handler
+    onMarkAsPaid: (booking: Booking) => void; // Handler for marking paid
+    onUpdateStatus: (id: string, newStatus: BookingStatus) => void; // Handler for status change
+    // Pass permissions explicitly
+    canEdit: boolean;
+    canDelete: boolean;
+    canCancel: boolean;
+    canView: boolean;
+    canMarkPaid: boolean;
   }
 
 // --- Main Table Component ---
-export function BookingListTable({ bookings, onEdit, onDelete }: BookingListTableProps) {
-  const navigate = useNavigate();
-  const { permissions } = useAuth();
-  const updateBookingMutation = useUpdateBooking();
+export function BookingListTable({
+    bookings,
+    onView,
+    onEdit,
+    onCancelOrDelete,
+    onMarkAsPaid, // Receive handler
+    onUpdateStatus}: BookingListTableProps) {
+  const { permissions } = useAuth(); // Keep permissions if needed by columns directly
 
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<any[]>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState({});
 
   // Memoize columns
   const columns = useMemo(
-      () => bookingColumns(permissions, onEdit, onDelete, navigate, updateBookingMutation),
-      [permissions, onEdit, onDelete, navigate, updateBookingMutation]
+      () => bookingColumns(
+          permissions ?? {}, // Pass permissions object
+          onView,
+          onEdit,
+          onCancelOrDelete,
+          onMarkAsPaid, // Pass handler
+          onUpdateStatus // Pass handler
+      ),
+      // Update dependencies
+      [permissions, onView, onEdit, onCancelOrDelete, onMarkAsPaid, onUpdateStatus]
   );
 
-  // Ensure data passed to useReactTable is always an array
   const tableData = useMemo(() => bookings ?? [], [bookings]);
 
   const table = useReactTable({
-    data: tableData, // <-- Use the guaranteed array
+    data: tableData,
     columns,
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -343,7 +324,6 @@ export function BookingListTable({ bookings, onEdit, onDelete }: BookingListTabl
     onRowSelectionChange: setRowSelection,
     state: {
       sorting,
-      columnFilters,
       columnVisibility,
       rowSelection,
     },
@@ -354,88 +334,12 @@ export function BookingListTable({ bookings, onEdit, onDelete }: BookingListTabl
     }
   });
 
-  // Removed loading/error handling - parent component (BookingList) handles this
+  // Loading state handled by parent
 
   return (
     <div className="w-full">
-      {/* Filtering & Column Visibility */}
-      <div className="flex flex-wrap items-center gap-4 py-4">
-        <Input
-          placeholder="Filter by guest name..."
-          value={(table.getColumn('guest_name')?.getFilterValue() as string) ?? ''}
-          onChange={(event) =>
-            table.getColumn('guest_name')?.setFilterValue(event.target.value)
-          }
-          className="max-w-sm"
-        />
-        {/* Payment Status Filter */}
-        <Select
-          value={(table.getColumn('payment_status')?.getFilterValue() as string) ?? ''}
-          onValueChange={(value) =>
-            table.getColumn('payment_status')?.setFilterValue(value === 'all' ? '' : value)
-          }
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Payment Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Payment Statuses</SelectItem>
-            {PAYMENT_STATUSES.map((status) => (
-              <SelectItem key={status} value={status} className="capitalize">
-                {status.replace('_',' ')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Booking Status Filter */}
-        <Select
-          value={(table.getColumn('booking_status')?.getFilterValue() as string) ?? ''}
-          onValueChange={(value) =>
-             table.getColumn('booking_status')?.setFilterValue(value === 'all' ? '' : value)
-          }
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Booking Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Booking Statuses</SelectItem>
-            {BOOKING_STATUSES.map((status) => (
-              <SelectItem key={status} value={status} className="capitalize">
-                {status.replace('_',' ')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="ml-auto">
-              Columns <ChevronDown className="ml-2 h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {table
-              .getAllColumns()
-              .filter((column) => column.getCanHide())
-              .map((column) => {
-                const columnLabel = column.id.replace(/_/g, ' ');
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    className="capitalize"
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                  >
-                    {columnLabel}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      {/* Remove Filtering & Column Visibility UI if handled in parent */}
+      {/* <div className="flex flex-wrap items-center gap-4 py-4"> ... </div> */}
 
       {/* Table */}
       <div className="rounded-md border">
@@ -443,18 +347,16 @@ export function BookingListTable({ bookings, onEdit, onDelete }: BookingListTabl
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  );
-                })}
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
               </TableRow>
             ))}
           </TableHeader>
@@ -462,7 +364,7 @@ export function BookingListTable({ bookings, onEdit, onDelete }: BookingListTabl
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
-                  key={row.original.id} // Use booking ID as key
+                  key={row.original.id}
                   data-state={row.getIsSelected() && 'selected'}
                 >
                   {row.getVisibleCells().map((cell) => (
