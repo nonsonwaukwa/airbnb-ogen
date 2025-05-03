@@ -1,7 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -11,7 +11,6 @@ import type { Invoice, InvoiceLineItem } from '../types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InvoicePDFDocument } from './InvoicePDFDocument';
 import { useGetSystemSettings } from '@/features/settings/hooks/useSystemSettings';
-import type { SystemSettings } from '@/features/settings/types';
 import { Link } from 'react-router-dom';
 
 // --- Helper Functions ---
@@ -69,7 +68,7 @@ interface InvoiceViewDisplayProps {
 export const InvoiceViewDisplay: React.FC<InvoiceViewDisplayProps> = ({ invoice, isLoading: isLoadingInvoice }) => {
 
   // Fetch system settings
-  const { data: systemSettings, isLoading: isLoadingSettings, error: settingsError } = useGetSystemSettings();
+  const { data: systemSettings, isLoading: isLoadingSettings } = useGetSystemSettings();
   // Note: We might want to handle settingsError more gracefully, maybe show fallback text
 
   // Combine loading states
@@ -137,7 +136,7 @@ export const InvoiceViewDisplay: React.FC<InvoiceViewDisplayProps> = ({ invoice,
                         document={<InvoicePDFDocument invoice={invoice} systemSettings={systemSettings} />}
                         fileName={pdfFileName}
                     >
-                         {({ blob, url, loading, error }) => (
+                         {({ loading }) => (
                             <Button 
                                 variant="outline" 
                                 size="sm" 

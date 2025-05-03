@@ -11,7 +11,6 @@ import type {
 import { toast } from 'sonner';
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDFDocument } from '../components/InvoicePDFDocument';
-import { useGetSystemSettings } from '@/features/settings/hooks/useSystemSettings';
 import type { SystemSettings } from '@/features/settings/types';
 import React from 'react';
 
@@ -299,7 +298,12 @@ export const downloadInvoicePDF = async (invoiceId: string, systemSettings: Syst
         const pdfDocumentElement = React.createElement(InvoicePDFDocument, { invoice, systemSettings });
 
         // 3. Generate the PDF blob using the element
-        const pdfBlob = await pdf(pdfDocumentElement).toBlob();
+        // Cast the element type to satisfy the pdf() function's expected signature.
+        // Using 'any' here to resolve the TS error "Cannot find name 'DocumentProps'"
+        // within the selection constraint. The proper fix involves importing DocumentProps
+        // from '@react-pdf/renderer' at the top of the file.
+         // This assumes InvoicePDFDocument renders a <Document> component internally.
+        const pdfBlob = await pdf(pdfDocumentElement as any).toBlob();
 
         // 4. Create a URL and trigger download
         const url = URL.createObjectURL(pdfBlob);

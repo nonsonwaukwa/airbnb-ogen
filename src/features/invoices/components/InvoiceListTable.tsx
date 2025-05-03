@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ColumnDef,
@@ -30,7 +30,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -48,12 +47,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { InvoiceListItem } from '../types'; // Use the list item type
 import { useAuth } from '@/app/AuthProvider';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  // Import other AlertDialog parts later when needed for actions
-} from "@/components/ui/alert-dialog";
 import { RecordPaymentDialog } from './RecordPaymentDialog';
 import { VoidInvoiceDialog } from './VoidInvoiceDialog';
 import { downloadInvoicePDF } from '../hooks/useInvoices';

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/config/supabaseClient'; // Ensure correct path
-import type { Booking, BookingStatus, CreateBookingPayload, UpdateBookingPayload, BookingImage, PaymentStatus } from '../types'; // Ensure correct path
+import type { Booking, BookingStatus, CreateBookingPayload, UpdateBookingPayload, BookingImage } from '../types'; // Ensure correct path
 import { toast } from 'sonner';
 // Comment out format if not used elsewhere
 // import { format } from 'date-fns';
